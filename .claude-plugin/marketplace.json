@@ -14,12 +14,6 @@
       "description": "Agents, skills, and tools for CLAD: Closed Loop Agentic Development using Lens Studio – encompassing Lens and Editor API scripting, prototyping, design, testing, validation, optimization, debugging, and publishing.",
       "version": "1.0.0",
       "source": "./plugins/ls-clad"
-    },
-    {
-      "name": "clad",
-      "description": "Internal: CLAD evaluation tooling — session data collection, analysis, and agent improvement workflows",
-      "version": "0.1.0",
-      "source": "./plugins/clad"
     }
   ]
 }
