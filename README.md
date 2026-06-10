@@ -28,7 +28,7 @@ You can also do this through the Claude Code terminal UI by opening the plugin f
 ```
 git clone git@github.com:lens-studio-devs/ls-extensions.git
 /plugin marketplace add /absolute/path/to/ls-extensions
-/plugin install /absolute/path/to/ls-extensions/plugins/ls-clad
+/plugin install ls-clad@lens-studio
 ```
 
 ### Codex

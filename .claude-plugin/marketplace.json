@@ -1,13 +1,10 @@
 {
-  "name": "ls-agent-extensions-internal",
-  "public_name": "lens-studio",
+  "name": "lens-studio",
   "owner": {
     "name": "Specs Inc. — Lens Studio Team"
   },
-  "metadata": {
-    "description": "AI components for AR and XR Development in Lens Studio",
-    "version": "1.0.0"
-  },
+  "description": "AI components for AR and XR Development in Lens Studio",
+  "version": "1.0.0",
   "plugins": [
     {
       "name": "ls-clad",

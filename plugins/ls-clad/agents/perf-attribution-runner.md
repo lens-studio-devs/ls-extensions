@@ -123,15 +123,15 @@ Invoke the appropriate `/specs-lens-perf-attribution` script:
 - `mode=full-sweep` or `mode=baseline`:
 
   ```bash
-  python3 "<ls-agent-extensions>/plugins/ls-clad/skills/specs-lens-perf-attribution/scripts/analyze_perfetto_sweep.py" \
+  python3 "<ls-extensions>/plugins/ls-clad/skills/specs-lens-perf-attribution/scripts/analyze_perfetto_sweep.py" \
     --manifest "<attribution_dir>/run_<timestamp>/sweep_manifest.json" \
     --out-dir "<attribution_dir>/run_<timestamp>"
   ```
 
-- `mode=targeted`: invoke the orchestrator's `targeted_remeasure.py` wrapper at `<ls-agent-extensions>/plugins/ls-clad/skills/specs-lens-perf-optimize/scripts/targeted_remeasure.py`. It re-uses `analyze_perfetto_attribution.py` with a 2-trace subset:
+- `mode=targeted`: invoke the orchestrator's `targeted_remeasure.py` wrapper at `<ls-extensions>/plugins/ls-clad/skills/specs-lens-perf-optimize/scripts/targeted_remeasure.py`. It re-uses `analyze_perfetto_attribution.py` with a 2-trace subset:
 
   ```bash
-  python3 "<ls-agent-extensions>/plugins/ls-clad/skills/specs-lens-perf-optimize/scripts/targeted_remeasure.py" \
+  python3 "<ls-extensions>/plugins/ls-clad/skills/specs-lens-perf-optimize/scripts/targeted_remeasure.py" \
     --attribution-dir "<attribution_dir>" \
     --focus-stage "<focus_stage>" \
     --baseline-trace "<prior cumulative stage, or the manifest's baseline stage>" \
