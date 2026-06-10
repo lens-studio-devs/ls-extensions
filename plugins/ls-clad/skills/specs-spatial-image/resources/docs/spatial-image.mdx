@@ -1,0 +1,260 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# Spatial Image
+
+## Overview
+
+Uploads a normal photo and gets back a 3D spatialised mesh that can be observed within a scene.
+
+> Only one image is able to be spatialized at a time. The Spatial Component will work to prioritize images that are in the scene and active. Having many spatialization requests at the same time can result in delays to returns.
+
+## Getting Started
+
+### Prerequisites
+
+- Lens Studio 5.3.0 or above
+- Spectacles OS v5.58.6621 or later
+- [Optional] Spectacles Interaction Kit
+
+### Initial Setup
+
+There are two ways to get you started building with Spatial Image. One, you can use the sample project that is provided in Lens Studio or you can install the custom component through the Asset Library.
+
+#### Sample Project
+
+This sample project is available on the [Lens Studio Home Page](https://developers.snap.com/lens-studio/lens-studio-workflow/lens-studio-interface/home).
+
+#### Custom Component Installation
+
+Setup your project so that it is built for Spectacles and your simulation environment is set to Spectacles.
+
+Once you have your environment setup, install the Spatial Image custom component through the Asset Library section under the Spectacles section.
+
+## Sample Project Scene Setup
+
+The Spatial Image Gallery sample project includes four main scene objects:
+
+- **SpectaclesInteractionKit**: Drives the interactions.
+- **SikSpatialImageFrame**: Extends the container frame and allows manipulation of the spatial image.
+- **SpatialGallery**: Enables browsing and navigating through multiple images.
+- **RemoteServiceGatewayCredentials**: In order to access the spatialization service a gateway credential is required.
+
+> **Remote Service Gateway**
+> Follow the instructions at [Remote Service Gateway](https://developers.snap.com/spectacles/about-spectacles-features/apis/remoteservice-gateway) to get a gateway credential. Enter this in the SceneObject **RemoteServiceGatewayCredentials**.
+
+## Sample Project Scripts
+
+This sample project includes several scripts. Below is an overview of their main functionalities and interactions. For more details, open the scripts in your preferred IDE or refer to API Reference.
+
+### Spatial Image Angle Validator
+
+The spatial image angle validator monitors the camera's position and emits events to determine if the viewing angle is optimal. In this sample project, these events are utilized by the `SpatialImageDepthAnimator`. Viewing images from extreme angles can reveal defects, which is generally undesirable. To address this, two scripts are employed:
+
+- The first script tracks the camera's position relative to the Spatial Image.
+- The second script reduces the depth scale, effectively flattening the image back to its original texture.
+
+Other scripts can track these transitions by registering callbacks via the provided functions.
+
+```javascript
+  /**
+   * Add a callback to onValidityCallbacks, to be called when the image is fully loaded
+   * @param callback - the callback to add
+   */
+  public addOnValidityCallback(callback: (entered: boolean) => void): void {
+    this.onValidityCallbacks.push(callback)
+  }
+
+  /**
+   * Remove a callback from the onValidityCallbacks.
+   * @param callback - the callback to remove
+   */
+  public removeOnValidityCallback(callback: (entered: boolean) => void): void {
+    this.onValidityCallbacks = this.onValidityCallbacks.filter(
+      (cb) => cb !== callback
+    )
+  }
+```
+
+The boundaries of the zone are controlled by two variables in the inspector: `validZoneFocal` and `validZoneAngle`.
+
+- `validZoneFocal`: Controls the distance of a point projected behind the image, which is used to compute the angle between the user's camera and the forward direction of the image. This allows the user to approach the image closely.
+- `validZoneAngle`: Specifies the range of the valid zone in degrees. The default values are `validZoneFocal` set to 2 and `validZoneAngle` set to 25, but these can be adjusted to create different viewing effects.
+- `validZoneThreshold`: Defines a small angle offset to prevent the user from frequently switching between valid and invalid zones.
+
+> See [Spatial Image Angle Validator](https://developers.snap.com/spectacles/about-spectacles-features/apis/spatial-image#spatial-image-angle-validator) in the upstream docs for a diagram of the valid-zone geometry.
+
+### Spatial Image Depth Animator
+
+`Spatial Image Depth Animator` adjusts the "depth scale" of the spatialized image, setting the desired depth. It works with the angle validator to reduce depth to a minimum when the viewing angle is invalid. When a new image is applied, it animates from a minimum depth scale to a user-specified maximum to showcase the effect.
+
+The `setMaxDepthScale` function transitions the image between a flattened state and a fully spatialized state using an easing function. This makes the depth change feel more natural. You can create new visual effects by replacing the "ease-in-out-sine" function with other functions from the easing functions array.
+
+```javascript
+if (Math.abs(distance) > 0.01) {
+  this.depthFlattenFollower =
+    this.depthFlattenFollower +
+    Math.sign(distance) * getDeltaTime() * this.animateSpeed;
+}
+
+const easedAngle = easingFunctions['ease-in-out-sine'](
+  this.depthFlattenFollower
+);
+```
+
+> The maximum depth scale for an image can be edited with the function `SpatialImageDepthAnimator.setBaseDepthScale`. This can be useful for changing how "3D" the image is.
+
+### Spatial Gallery
+
+With the gallery scene set up, you can open the `SpatialGallery` script to understand how this example works. Spatial Gallery demonstrates a basic use of the spatializer. Images, represented as `Texture`, are organized in a list and spatialized using `SpatialImageFrame.setImage`, which is called in the `setIndex` function.
+
+```javascript
+  private setIndex(newIndex: number) {
+    this.index = newIndex
+    this.frame.setImage(this.gallery[this.index], true)
+  }
+```
+
+### Spatial Image Swapper
+
+Spatial Image Swapper manages the transition between a flat image and a spatialized image. It references both the flat image and the spatializer, ensuring the flat image is replaced with the spatialized version. Additionally, it updates the scale of the flat image to render correctly within the frame when the texture is set.
+
+### Spatial Image Frame
+
+The Spatial Image Frame acts as the manager, it handles requests to spatialize images, updates the flat image, swaps the images when the spatialized version is ready, and ensures the SIK frame renders correctly without clipping or interfering with either image.
+
+The key function here is `setImage`, which integrates the display components. It first adjusts the SIK container size to match the aspect ratio of the provided image.
+
+Additionally, you can subscribe to the spatial image's `onLoaded` callback. This ensures that once the image is spatialized, the flat image is hidden, leaving only the 3D image visible. The image texture is passed to both the spatializer and the swapper to keep everything updated.
+
+A small timeout is included at the bottom to ensure the first image displayed has the correct aspect ratio. This allows the frame to initialize properly before reading from it.
+
+```javascript
+  /**
+   * Updates both spatialized and flat images to the passed texture.
+   */
+  public setImage(image: Texture, swapWhenSpatialized: boolean = false): void {
+    // update the size of the container to match the dimensions of the new image.
+    const height: number = this.container.innerSize.y
+    const newWidth: number = height * (image.getWidth() / image.getHeight())
+    this.updateContainerSize(new vec2(newWidth, height))
+
+    // if this argument is true, then when the "onLoaded" event is actuated, this component should update to display the spatialized image.
+    if (swapWhenSpatialized) {
+      const setSpatialCallback = () => {
+        this.setSpatialized(true)
+        this.spatializer.onLoaded.remove(setSpatialCallback)
+      }
+      this.spatializer.onLoaded.add(setSpatialCallback)
+    }
+
+    // The swapper is passed a reference to the new flat image and set to be unspatialized until the spatialization result comes through.
+    this.spatialImageSwapper.setImage(image)
+    this.spatialImageSwapper.setSpatialized(false)
+    this.spatializer.setImage(image)
+
+    // A work around to the initialization of the scene
+    setTimeout(() => {
+      this.updateContainerSize(new vec2(newWidth, height))
+    }, 100)
+  }
+```
+
+When an image is "picked up" with pinching, users are able to move the image closer or further away from them quite rapidly. Doing this can produce a strange effect on the observer as their window into the spatialized world appears to warp in depth. To counter this, the depth animator adjusts the frame offset of the spatialized image.
+
+```javascript
+  private setFocalPoint() {
+    const cameraPosition = this.camera.getTransform().getWorldPosition()
+    const imagePos = this.spatializer.getTransform().getWorldPosition()
+    const distance = cameraPosition.distance(imagePos)
+    this.spatializer.setFrameOffset(-distance)
+  }
+```
+
+## API Reference
+
+### LoadingIndicator
+
+This script fills a loading indicator to represent progress while a task is completed.
+
+| Signature        | Type                  | Description                                                          |
+| :--------------- | :-------------------- | :------------------------------------------------------------------- |
+| **METHODS**      |                       |                                                                      |
+| reset            | function () → void    | Resets the progression to 0.                                         |
+| **PROPERTIES**   |                       |                                                                      |
+| checkProgressing | delegate () → boolean | Allows custom start and stop functions to be added to the indicator. |
+
+### SpatialGallery
+
+Provides a somewhat complex example of use of the spatial image components.
+
+| Signature        | Type               | Description                                                          |
+| :--------------- | :----------------- | :------------------------------------------------------------------- |
+| **METHODS**      |                    |                                                                      |
+| leftPressed      | function () → void | Moves the gallery's focus to the next image.                         |
+| rightPressed     | function () → void | Moves the gallery's focus to the previous image.                     |
+| **PROPERTIES**   |                    |                                                                      |
+| frame            | SpatialImageFrame  | The SIK container frame that holds the image.                        |
+| image            | SpatialImage       | The spatial image custom component.                                  |
+| loadingIndicator | LoadingIndicator   | The loading indicator to tell that the image is being spatialized.   |
+| gallery          | Texture[]          | The set of images that make up the gallery.                          |
+| shuffle          | booleam            | If true the order of the gallery will be shuffled on initialization. |
+
+### SpatialImageAngleValidator
+
+Tracks the users point of view and emits events on whether they are viewing from a valid angle or not.
+
+| Signature                | Type                                           | Description                                                                                                                                                |
+| :----------------------- | :--------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **METHODS**              |                                                |                                                                                                                                                            |
+| setValidZoneFocal        | function (focal: number) → void                | Sets the focal point of the valid zone. This allows the user to move their head around in front of the image without it being considered an extreme angle. |
+| setValidZoneAngle        | function (angle: number) → void                | Sets the angle, in degrees, at which the angle is considered valid.                                                                                        |
+| addOnValidityCallback    | function( callback (entered: boolean) => void) | Add a callback to onValidityCallbacks, to be called when the image is fully loaded.                                                                        |
+| removeOnValidityCallback | function( callback (entered: boolean) => void) | Remove a callback from the onValidityCallbacks.                                                                                                            |
+| **PROPERTIES**           |                                                |                                                                                                                                                            |
+| validZoneFocal           | number                                         | A focal point, set behind the image, where the angle is measured from.                                                                                     |
+| validZoneAngle           | number                                         | The angular range, in degrees, where no flattening is applied.                                                                                             |
+| validZoneThreshold       | number                                         | The threshold, in degrees, which must be exceeded when moving between the dead zone.                                                                       |
+
+### SpatialImageDepthAnimator
+
+Controls the depth scale of the spatial image to reflect the entry of new images as well as ensure it's viewed only from correct angles.
+
+| Signature         | Type                            | Description                                    |
+| :---------------- | :------------------------------ | :--------------------------------------------- |
+| **METHODS**       |                                 |                                                |
+| setBaseDepthScale | function (depth: number) → void | Sets the maximum depth scale for the image.    |
+| **PROPERTIES**    |                                 |                                                |
+| animateSpeed      | number                          | The speed at which the depth value is changed. |
+
+### SpatialImageFrame
+
+Reorders rendering order to ensure the image looks correct.
+
+| Signature      | Type                                                                   | Description                                                     |
+| :------------- | :--------------------------------------------------------------------- | :-------------------------------------------------------------- |
+| **METHODS**    |                                                                        |                                                                 |
+| setSpatialized | function (value: boolean) → void                                       | Toggle call to switch between specialized and flat images.      |
+| setImage       | function (image: Texture, swapWhenSpatialized: boolean = false) → void | Updates both spatialized and flat images to the passed texture. |
+
+### SpatialImageSwapper
+
+Responsible to change the active scene object between a flat version and the spatialized version when the onLoaded event triggers.
+
+| Signature      | Type                                   | Description                                                                 |
+| :------------- | :------------------------------------- | :-------------------------------------------------------------------------- |
+| **METHODS**    |                                        |                                                                             |
+| setImage       | function (image: Texture) → void       | Sets the texture of the flat version of the image.                          |
+| setSpatialized | function (spatialized: boolean) → void | If true, the spatialized image will be displayed and the depth animated in. |
+
+## Troubleshooting
+
+#### Why is the spatial image's background cut off?
+
+Try increasing the far clipping plane of the camera.
+
+#### Why doesn't the spatial image up in the Lens Studio preview?
+
+Make sure the preview device is set to Spectacles and check internet connection.

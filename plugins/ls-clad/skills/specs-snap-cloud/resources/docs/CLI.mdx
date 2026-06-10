@@ -1,0 +1,72 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# CLI
+
+The [Snap Cloud] CLI enables you to interface with your projects using a command line interface, and perform various tasks locally on different platforms. You can use it to manage databases and storage, deploy edge functions, run testing, and more without accessing the [Snap Cloud] Dashboard.
+
+### Installing the CLI
+
+To install the CLI:
+
+macOS:
+
+```ts
+
+brew install supabase/tap/supabase
+
+```
+
+Windows:
+
+```
+ts scoop bucket add supabase https://github.com/supabase/scoop-bucket.git
+scoop install supabase
+
+```
+
+### Updating the CLI
+
+To update the CLI:
+
+macOS:
+
+```ts
+
+brew upgrade supabase
+
+```
+
+Windows:
+
+```ts
+
+scoop update supabase
+
+```
+
+### Using the CLI
+
+To use the CLI invoke `supabase` with the `snap` profile, followed by your command:
+
+```ts
+
+supabase --profile snap [command]
+
+```
+
+The CLI remembers your last used profile, so you do not need to specify `--profile snap` on each successive CLI command.
+
+For example:
+
+```ts
+
+supabase --profile snap login
+
+```
+
+For a full list of CLI commands, see the CLI [reference](https://cloud.snap.com/docs/reference/cli/introduction).
+
+[Snap Cloud]: https://cloud.snap.com/

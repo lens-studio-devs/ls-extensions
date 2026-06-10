@@ -1,0 +1,104 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# Networked Events
+
+> Upstream docs for rendered code examples: [Networked Events](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/features/networked-events).
+
+Networked events can be added to [SyncEntities](./sync-entity) for the purpose of sending one-off, real-time events or messages that do not change the state of the SyncEntity. For example, a networked event can be sent to play a sound effect or trigger a particle effect for all users.
+
+Networked events are useful for triggering behaviors that take effect immediately and do not involve data that needs to be referenced again like a [storage property](./storage-properties.mdx). In simple terms, you can think of networked events as calling a function on all instances of a SyncEntity across the network.
+
+### Simple Sending and Receiving
+
+Before a SyncEntity sends an event, tell the SyncEntity to listen for the event using `SyncEntity.onEventReceived`. In the add method, pass the name of the event (e.g., “sayHi”) and the callback function that should run when the event is received. This can be done before the SyncEntity [setup](./sync-entity#syncentity-setup) is finished.
+
+```ts
+sayHi() {
+    print("Hi!");
+}
+
+this.syncEntity.onEventReceived.add('sayHi', sayHi);
+```
+
+To send an event, use `SyncEntity.sendEvent()`, passing the name of the event as a parameter.
+
+```ts
+this.syncEntity.sendEvent('sayHi');
+```
+
+### MessageInfo
+
+If you need more information about the event, like who it was sent by, the `SyncEntity.onEventReceived` callback supplies a MessageInfo object that provides info about the event message.
+
+- `MessageInfo.senderUserId`: The [user ID](./user-information#userid) of the sender.
+- `MessageInfo.senderConnectionId`: The [connection ID](./user-information#connectionid) of the sender.
+- `MessageInfo.message`: The name of the event.
+- `MessageInfo.data`: The data sent with the event.
+
+```ts
+this.syncEntity.onEventReceived.add('myEventName', (messageInfo) => {
+  print('event sender: ' + messageInfo.senderUserId);
+  print('event sender connectionId: ' + messageInfo.senderConnectionId);
+  print('event name: ' + messageInfo.message);
+  print('event data: ' + messageInfo.data);
+});
+```
+
+### Including Event data
+
+It is often useful to include data along with an event, just like passing information into a function using parameters.
+`SyncEntity.sendEvent()` has an optional second parameter for event data that gets included in the MessageInfo object as `MessageInfo.data`.
+Note: Networked events have a payload size limit of 100 KB.
+
+```ts
+this.syncEntity.sendEvent('printMessage', 'this is my event data!');
+
+this.syncEntity.onEventReceived.add('printMessage', (messageInfo) => {
+  print(messageInfo.data);
+});
+```
+
+Event data supports the following data types:
+
+- string
+- vec2
+- vec3
+- vec4
+- quat
+- object, as long as it is JSON serializable (example below)
+
+```ts
+const soundData = {
+  clipName: 'bounce',
+  volume: 0.5,
+  loops: 1,
+  position: new vec3(1, 2, 3),
+};
+
+this.syncEntity.sendEvent('playSound', soundData);
+
+this.syncEntity.onEventReceived.add('playSound', (messageInfo) => {
+  let soundData = messageInfo.data;
+  print('clipName: ' + soundData.clipName);
+  print('volume: ' + soundData.volume);
+  print('loops: ' + soundData.loops);
+  print('position: ' + soundData.position);
+});
+```
+
+### Event Recipients
+
+Networked events are sent to all users in the session by default. To send a networked event to remote users only, pass `true` as a third parameter to `SyncEntity.sendEvent()`.
+
+```ts
+this.syncEntity.sendEvent('remoteMessage', {}, true);
+```
+
+### Payload and Rate Limits
+
+Networked events count against [payload and message rate limits](./payload-and-rate-limits). Each networked event counts as one message.
+
+If limits are exceeded in Lens Studio, an error will print in the Logger and the session may disconnect.

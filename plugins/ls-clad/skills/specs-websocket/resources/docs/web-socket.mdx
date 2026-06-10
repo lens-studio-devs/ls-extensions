@@ -1,0 +1,83 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# WebSocket
+
+Standardized **WebSocket** API ([MDN reference](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)). Requirements and Device Type Override are covered in SKILL.md.
+
+> Prior to Lens Studio 5.9, `createWebSocket` was available via the `RemoteServiceModule`. From Lens Studio 5.9, this API has been moved to the `InternetModule`. Lenses that are already public can continue to use this method in `RemoteServiceModule` until they are re-published with Lens Studio 5.9+.
+
+> Using insecure connections (`ws`) requires enabling [Experimental APIs](https://developers.snap.com/spectacles/permission-privacy/experimental-apis). While these Lenses are suitable for testing purposes, they cannot be published. Lenses employing secure connections (`wss`) are eligible for publication.
+
+## Core Component
+
+```ts
+@component
+export class WebSocketExample extends BaseScriptComponent {
+  @input
+  internetModule: InternetModule;
+
+  private socket!: WebSocket;
+  // Method called when the script is awake
+  async onAwake() {
+    this.socket = this.internetModule.createWebSocket('wss://<some-url>');
+
+    this.socket.binaryType = 'blob';
+
+    // Listen for the open event
+    this.socket.onopen = (event: WebSocketEvent) => {
+      print('WebSocket Connected!');
+
+      // Socket has opened, send a text message
+      const msg = 'Message 1';
+      print('Sending: ' + msg);
+      this.socket.send(msg);
+
+      // Try sending a binary message
+      // (the bytes below spell 'Message 2')
+      const message: number[] = [77, 101, 115, 115, 97, 103, 101, 32, 50];
+      const bytes = new Uint8Array(message);
+      print('Sending binary message: Message 2');
+      this.socket.send(bytes);
+    };
+
+    // Listen for messages
+    this.socket.onmessage = async (event: WebSocketMessageEvent) => {
+      if (event.data instanceof Blob) {
+        // Binary frame, can be retrieved as either Uint8Array or string
+        const bytes = await event.data.bytes();
+        const text = await event.data.text();
+
+        print('Received binary message, printing as text: ' + text);
+      } else {
+        // Text frame
+        const text: string = event.data;
+        print('Received text message: ' + text);
+      }
+    };
+    this.socket.onclose = (event: WebSocketCloseEvent) => {
+      if (event.wasClean) {
+        print('Socket closed cleanly');
+      } else {
+        print('Socket closed with error, code: ' + event.code);
+      }
+    };
+
+    this.socket.onerror = (event: WebSocketEvent) => {
+      print('Socket error');
+    };
+  }
+}
+```
+
+## Known Limitations
+
+The WebSocket API supports all methods in the standard, with the following exceptions:
+
+- The `Blob` type does not yet support **ArrayBuffer** or **Stream**.
+
+- `WebSocket.binaryType` does not support **arrayBuffer**.
+
+- The **extensions**, **protocol** and **bufferedAmount** properties are not supported.

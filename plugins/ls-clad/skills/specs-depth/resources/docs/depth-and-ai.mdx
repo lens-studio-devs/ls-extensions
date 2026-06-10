@@ -1,0 +1,73 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# Depth API + AI — Grounding Vision Models in 3D
+
+One of the highest-value uses of the Depth Module is **grounding a cloud vision model in the user's real-world space**: cache the depth frame paired with the captured color image, then project the model's returned image-space coordinates back into **world space** to place AR content on real objects (the "Why depth is needed at all" section below explains the mechanism).
+
+This is exactly what the `Depth Cache` sample (`specs-samples/Depth Cache`) demonstrates, using Gemini 2.5 Pro for spatial reasoning. The same flow works for **any** vision model that returns pixel or image-space coordinates.
+
+> **Boundary — read this first.** This skill owns the **depth side**: capturing a frozen depth+color pair and converting a returned pixel coordinate into a `vec3` in world space. It stops at producing a `Texture` and a `pixelPos → vec3` function. The **AI side** — the Remote Service Gateway call, model IDs, request/response schema, prompt design, parsing bounding boxes — belongs to the **`specs-ai-remote-service`** skill. Do not duplicate RSG/Gemini/OpenAI code here. Load `specs-ai-remote-service` for that half.
+
+---
+
+## Why depth is needed at all
+
+A vision model returns something like `boundingBox: [y1, x1, y2, x2]` normalized to the image. Converting that to a pixel center is trivial. But a pixel coordinate is a **ray**, not a point — without depth you cannot know how far along that ray the object sits. The cached depth frame supplies the missing distance, so `unproject(pixelUV, depth)` yields a true 3D point you can transform into world space and anchor a label to.
+
+The catch: the AI response arrives **hundreds of milliseconds to seconds later**, by which time the live depth and camera frames have moved on. You must **freeze** the depth+color pair at capture time and query it after the response returns. That is the entire reason `DepthCache` exists.
+
+---
+
+## The end-to-end flow
+
+```
+ user speaks / pinches
+        │
+        ▼
+ saveDepthFrame()                 ← specs-depth (this skill)
+   → freezes latest depth+color pair, returns an ID
+        │
+        ▼
+ getCamImageWithID(id) → Texture  ← specs-depth
+        │
+        ▼
+ send Texture + query to model    ← specs-ai-remote-service (RSG / Gemini / OpenAI)
+   → model returns image-space boxes / pixel coords
+        │
+        ▼
+ for each returned pixelPos:
+   getWorldPositionWithID(pixelPos, id) → vec3   ← specs-depth
+   place AR label at the world position
+        │
+        ▼
+ disposeDepthFrame(id)            ← specs-depth (free the cached pair)
+```
+
+The two `specs-depth` calls (`getCamImageWithID`, `getWorldPositionWithID`) bracket the single `specs-ai-remote-service` call. Everything between them — encoding the texture to base64, the RSG request, the response schema, parsing labels — lives in `specs-ai-remote-service`.
+
+---
+
+## Orchestrator sketch
+
+This is the *seam* between the two skills. See the **Depth Cache pattern** in `SKILL.md` for the full code; the bracketing `specs-depth` calls are `saveDepthFrame` / `getCamImageWithID` (freeze + grab the color texture) → the single `specs-ai-remote-service` vision call → `getWorldPositionWithID` (map returned pixels to world) → `disposeDepthFrame`.
+
+> The vision model returns coordinates in **its own image space** (often normalized 0–1000). Converting those to pixel coordinates on the cached color texture is part of parsing the model response — handle it in `specs-ai-remote-service`, then pass clean `vec2` pixel positions to `getWorldPositionWithID`.
+
+---
+
+## Gotchas specific to the depth+AI combo
+
+- **Freeze, don't re-read.** Always query against the saved `depthFrameID`, never the latest live frame — by the time the model answers, the live pair no longer matches the image the model saw.
+- **Median sampling matters more here.** Model-returned coordinates often land on object edges, where single-pixel depth reads hit invalid zeros — `getWorldPositionWithID` samples a 3×3 median (rationale in the `DepthCache.ts` JSDoc).
+- **Test on-device.** Lens Studio Preview does not stream depth, so the full loop can only be validated on Specs.
+
+---
+
+## Where to go next
+
+- **Depth side** (capture, pixel→world, scene setup): this skill's `SKILL.md` → "Depth Cache pattern".
+- **AI side** (RSG setup, model IDs, request/response, prompt design, parsing): load **`specs-ai-remote-service`**.
+- **Reference Lens**: `specs-samples/Depth Cache` — `DepthCache.ts` (depth), `GeminiAPI.ts` (AI, RSG), `SceneController.ts` (orchestration).

@@ -1,0 +1,75 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# Transparent Permission
+
+Transparent Permission allows published Lenses to combine internet connectivity with sensitive user data (camera, microphone, or location) while maintaining user privacy through explicit disclosure.
+
+> **Camera + Internet is supported via Transparent Permission.** Combining `CameraModule` with any internet descriptor (e.g. `InternetModule`, `RemoteServiceModule`, Remote Service Gateway, WebSocket, `SupabaseModule`) is allowed in published Lenses — this combination simply triggers the Transparent Permission flow described here.
+
+When a Lens with Transparent Permission launches, two things happen:
+
+1. **Permission prompt**: A dialog appears listing which sensitive data the Lens will access.
+2. **LED indicator**: If granted, the device's LED blinks while sensitive data is being captured.
+
+Spectacles prioritizes user privacy by default. Previously, Lenses could not combine external connectivity (internet or Bluetooth) with sensitive data access. Transparent Permission enables this combination by ensuring users have explicit awareness.
+
+This design ensures users maintain control and awareness of their data, particularly when using internet-connected Lenses.
+
+> Lenses that use Experimental APIs still cannot be published to a wider audience.
+
+## Compatibility
+
+Not all permission combinations are compatible with Transparent Permission. The following combinations are supported:
+
+| Permission Combination | Examples |
+| --- | --- |
+| Internet Descriptor + Connectivity type + Sensitive Sensor | `InternetModule` + `SpectaclesSyncKit` + `AsrModule`; `SupabaseModule` + `SpectaclesSyncKit` + `DialogModule` |
+| Internet Descriptor + Sensitive Sensor | Remote Service Gateway + `CameraModule`; WebSocket + `AsrModule`; `RemoteServiceModule` + `RawLocationModule` |
+
+If a Lens uses the following unsupported permission combinations, it will not be eligible for publication. See the workaround below.
+
+| Permission Combination | Example | Workaround |
+| --- | --- | --- |
+| Connectivity type + Sensitive Sensor | `SpectaclesSyncKit` + `AsrModule` | Cannot be published as-is. Adding `InternetModule` to the Lens satisfies the requirement and makes the Lens publishable. |
+
+## Module to Descriptor Mapping
+
+**Internet Modules**
+
+| Module | Descriptors Applied |
+| --- | --- |
+| `InternetModule` | Internet |
+| `SupabaseModule` | Managed Backend, Internet |
+| `SpecsMobileKitModule` | SpectaclesKitModule, Internet |
+
+**Connectivity type Modules**
+
+| Module | Descriptors Applied |
+| --- | --- |
+| `ConnectedLensModule` | Remote Connected Lenses, Colocated Connected Lenses |
+| `RemoteServiceModule` | Remote API |
+| `BluetoothCentralModule` | Bluetooth Peripheral |
+
+**Sensitive Sensor Modules**
+
+| Module | Descriptors Applied |
+| --- | --- |
+| `CameraModule` | Camera |
+| `AsrModule` | Microphone |
+| `DialogModule` | Speech to Text |
+| `AudioTrackAsset` w/ `MicrophoneAudioProvider` | Microphone - SnapML |
+| `RawLocationModule` | GPS - Precise |
+| `ProcessedLocationModule` | Location - Coarse |
+
+## Extended Permissions
+
+Extended Permissions is a user-controlled setting that bypasses Transparent Permission prompts by granting permissions by default. Users with Extended Permissions enabled will not see prompts when launching these Lenses.
+
+Users can enable Extended Permissions in the Spectacles app when they:
+
+- Trust the developer or Lens source
+- Want to avoid repeated prompts for frequently-used Lenses
+- Understand the privacy implications

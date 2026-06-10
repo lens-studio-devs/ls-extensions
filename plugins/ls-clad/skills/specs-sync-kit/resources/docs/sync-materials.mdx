@@ -1,0 +1,29 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# Sync Materials
+
+> Upstream docs for figures and diagrams: [Sync Materials](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/features/sync-materials).
+
+The SyncMaterials component can be used to sync material properties, such as color. Any changes to the configured properties are automatically synchronized across the network. Attaching a SyncMaterials component to a scene object turns that object into a [SyncEntity](./sync-entity). The SyncMaterials component uses [storage properties](./storage-properties) to sync material properties.
+
+The SyncMaterials component supports syncing material properties of the following types:
+
+- float
+- vec2
+- vec3
+- vec4
+
+### Setup
+
+1. Add the SyncMaterials component to the scene object in the Scene Hierarchy that uses the material to be synced.
+
+1. Add the material to be synced to the **Main Material** Input.
+
+1. Under **Property Names**, click `+ Add Value` and enter the string of the property name to be synced, e.g., `baseColor`.
+
+### Auto clone
+
+If Auto Clone is enabled, the Main Material is immediately cloned on Lens start. Next, the scene object that the SyncMaterials component is attached to, and all of its children, are recursively searched to find any MaterialMeshVisuals that are using the assigned Main Material. The main material on each MaterialMeshVisual is then set to the cloned material. This is useful when [instantiating](./prefab-instantiation) a new object and assigning its own material to it, so the material is not shared with other instances of the prefab.

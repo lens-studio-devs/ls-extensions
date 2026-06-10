@@ -1,0 +1,51 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# Overview
+
+Connected Lenses on Spectacles are shared experiences that let multiple people see and interact with the same AR content at the same time.
+
+### About Connected Lenses on Spectacles
+
+#### Spectacles-to-Spectacles
+
+Connected Lenses support Spectacles-to-Spectacles sessions. All users must join a Connected Lens from Spectacles. Joining the same Connected Lens from both Spectacles and mobile devices is not currently supported.
+
+#### Colocated
+
+Connected Lenses on Spectacles are colocated, meaning users are in the same physical space. The first user to join the Connected Lens is guided to map their surroundings, and subsequent users relocalize against the shared map.
+
+#### Synchronous
+
+Connected Lenses on Spectacles are synchronous, meaning users experience the Lens at the same time. Lens data is updated across the network in real-time.
+
+### Connected Lenses System
+
+### Architecture
+
+During a Connected Lens session, multiple Spectacles devices connect to the same realtime data stores in the Connected Lenses backend. To synchronize Lens content, the backend stores data that is accessible to all devices and relays messages among devices.
+
+> See [Architecture](https://developers.snap.com/spectacles/about-spectacles-features/connected-lenses/overview#architecture) in the upstream docs for the architecture diagram.
+
+#### SnapOS
+
+SnapOS provides multiple ways for Spectacles users to join Connected Lenses from Lens Explorer. For more information, see [Using Connected Lenses](https://developers.snap.com/spectacles/about-spectacles-features/connected-lenses/using-connected-lenses).
+
+#### Lens Studio
+
+Lens Studio offers tools to aid in the development and testing of Connected Lenses. For more information, see [Building Connected Lenses](https://developers.snap.com/spectacles/about-spectacles-features/connected-lenses/building-connected-lenses).
+
+#### Spectacles Sync Kit
+
+Spectacles Sync Kit is a Lens Studio package that provides the core logic, APIs, and components for building Connected Lenses on Spectacles. For more information, see [Spectacles Sync Kit](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/overview).
+
+#### Compatibility with Spectacles Interaction Kit and Spectacles UI Kit
+
+Each release of the Spectacles Sync Kit is designed to work with specific versions of Lens Studio and its companion frameworks. To ensure stability and feature compatibility, make sure all frameworks and Lens Studio versions match the compatibility chart below. Using mismatched versions may result in errors or unexpected behavior during build or runtime.
+
+| Lens Studio | Spectacles Interaction Kit | Spectacles Sync Kit | Spectacles UI Kit |
+| :---------- | :------------------------: | :-----------------: | :---------------: |
+| v5.15       |           0.15.0           |     1.3.651799      |       0.0.8       |
+| v5.12       |           0.14.0           |      1.2.25000      |  Not Compatible   |

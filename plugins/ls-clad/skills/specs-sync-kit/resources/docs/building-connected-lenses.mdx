@@ -1,0 +1,116 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# Building Connected Lenses
+
+> Upstream docs for figures and diagrams: [Building Connected Lenses](https://developers.snap.com/spectacles/about-spectacles-features/connected-lenses/building-connected-lenses).
+
+Connected Lenses for Spectacles are built in Lens Studio. Lens Studio offers a number of tools for building and testing Connected Lenses in the editor and on device.
+
+### Spectacles Sync Kit
+
+> See [Spectacles Sync Kit](https://developers.snap.com/spectacles/about-spectacles-features/connected-lenses/building-connected-lenses#spectacles-sync-kit) in the upstream docs for diagrams.
+
+Spectacles Sync Kit is a Lens Studio package that provides the core logic, APIs, and components for building Connected Lenses on Spectacles. For more information about how to set up a project with Spectacles Sync Kit, see [Spectacles Sync Kit > Getting Started](../../spectacles-frameworks/spectacles-sync-kit/overview.mdx).
+
+### TypeScript Status panel
+
+> See [TypeScript Status panel](https://developers.snap.com/spectacles/about-spectacles-features/connected-lenses/building-connected-lenses#typescript-status-panel) in the upstream docs for diagrams.
+
+The Spectacles Sync Kit package is written in TypeScript, which needs to be compiled before you can preview your Lens. Add the TypeScript Status panel to your Lens Studio layout via `Windows` > `Utilities` > `TypeScript Status` panel to confirm compilation.
+
+### Project Settings
+
+> See [Project Settings](https://developers.snap.com/spectacles/about-spectacles-features/connected-lenses/building-connected-lenses#project-settings) in the upstream docs for diagrams.
+
+In Project Settings > Platform Settings, select Spectacles. This configures the appropriate permissions for Connected Lenses on Spectacles.
+
+### Connected Lens Module
+
+> See [Connected Lens Module](https://developers.snap.com/spectacles/about-spectacles-features/connected-lenses/building-connected-lenses#connected-lens-module) in the upstream docs for diagrams.
+
+The Spectacles Sync Kit package includes a Connected Lens Module that connects your Lens to the Connected Lenses backend. The Inspector panel for the Connected Lenses Module includes a `Session ID` field. The Session ID is is a unique string that identifies the session. Press the `Randomize Session ID` button to create a new session or to reset the session for all Preview panels.
+
+### Configuring Session ID
+
+> See [Configuring Session ID](https://developers.snap.com/spectacles/about-spectacles-features/connected-lenses/building-connected-lenses#configuring-session-id) in the upstream docs for diagrams.
+
+Configuring `Session ID` establishes a consistent session between Spectacles and Lens Studio, enhancing the development and testing workflow for Multiplayer Lenses within Lens Studio and Spectacles. Setting the same `Session ID` streamlines the development workflow by eliminating the need for manual session selection in Lens Studio. When applied to both Lens Studio and Spectacles, it ensures synchronization with the same session, enabling faster iteration and the ability to test Multiplayer Lenses using a single Spectacles device.
+
+1. Find the `Session ID` on the top of Preview Panel in Lens Studio
+
+2. Enter this `Session ID` in the Spectacles App under `Developer Settings > Skip Session Selection`.
+
+Configuring the same `Session ID` also allows users to join the same session automatically when the Lens is launched. It connects directly to the session specified in the Spectacles App, removing the need to manually select a session.
+
+Each Spectacles device must be configured with the same `Session ID` in the Spectacles App.
+
+When configuring a `Session ID`, ensure that a valid `UUID` (Universally Unique Identifier) is provided.
+The Session ID functions as a unique key for synchronizing devices within the same session. Providing a correctly formatted UUID (e.g., `123e4567-e89b-12d3-a456-426614174000`) ensures proper integration with session management systems and reliable communication between Spectacles and Lens Studio.
+The `Randomize Session ID` button is recommended when generating a `Session ID`. It automatically provides a valid UUID, ensuring compatibility with session synchronization and reducing the risk of formatting errors.
+
+### Multiple Previews
+
+> See [Multiple Previews](https://developers.snap.com/spectacles/about-spectacles-features/connected-lenses/building-connected-lenses#multiple-previews) in the upstream docs for diagrams.
+
+Connected Lenses can be tested in Lens Studio using multiple Preview panels. When multiple Preview panels are open, each Preview simulates a different user in a Connected Lenses session. To add an additional Preview panel to your Lens Studio layout, select `Windows` > `General` > `Preview`. [Configure new Preview panels for Spectacles](../../get-started/start-building/preview-panel.mdx).
+
+Each Preview panel shows the Session ID that it is connected to. This can be used to verify that Previews are joining the same session.
+
+To exit the session from a Preview panel, press the Refresh button at the top right of the panel. This will reset the Preview to the [Start Menu](../../spectacles-frameworks/spectacles-sync-kit/features/start-menu-and-single-player).
+
+### Connected Lenses Monitor
+
+> See [Connected Lenses Monitor](https://developers.snap.com/spectacles/about-spectacles-features/connected-lenses/building-connected-lenses#connected-lenses-monitor) in the upstream docs for diagrams.
+
+The Connected Lenses Monitor is a tool that provides a real-time view of the session, including messages and data stores. It can be added from `Windows` > `Utilities` > `Connected Lenses Monitor`. For more information on how to use the Connected Lenses Monitor, see [How to Use Connected Lenses Monitor](../../../lens-studio/features/connected-lenses/development-workflow).
+
+### Testing on Spectacles
+
+To test your Connected Lens on Spectacles, follow these steps:
+
+#### Connect Spectacles to Lens Studio
+
+> See [Connect Spectacles to Lens Studio](https://developers.snap.com/spectacles/about-spectacles-features/connected-lenses/building-connected-lenses#connect-spectacles-to-lens-studio) in the upstream docs for diagrams.
+
+1. Connect Spectacles with Lens Studio using [Direct Connection](../../../spectacles/get-started/start-building/connecting-lens-studio-to-spectacles).
+2. For multiple pairs of Spectacles, [pair each device](https://support.spectacles.com/hc/en-us/articles/27749456935572-Pairing-the-device-to-your-phone-first-time) and make sure the devices are connected to WiFi.
+
+**Pushing Connected Lenses with One Computer**
+
+Send the Lens to each device separately via a wired or WiFi connection.
+
+- **WiFi connection**, ensure only the device to which you wish to send the Lens is awake, and put the other devices to sleep.
+- **For Wired connection**, keep only one device plugged in at a time. For more details, see [Direct Connection](../../../spectacles/get-started/start-building/connecting-lens-studio-to-spectacles) and [Testing Lenses on Spectacles](../../../spectacles/get-started/start-building/test-lens-on-spectacles).
+- **Troubleshooting tip:** If you encounter issues seeing the session from another Spectacles, try the following steps:
+  1. Push the Lens to Specs 1, then sleep the device
+  2. Unplug Specs 1, and plug in Specs 2
+  3. Push the Lens to Specs 2
+  4. Start the Lens on Specs 2, create a session and start mapping
+  5. Wake Specs 1 and wait for Active Nearby to show on the device or launch the Lens from Drafts and join the session
+
+**Pushing Connected Lenses with Multiple Computers**
+
+1. Make sure `Session ID` in Connected Lens Module is configured the same in Lens Studio before pushing the Lens to Spectacles.
+
+When opening a Lens Studio project that has Connected Lens Module, the `session ID` will be randomized automatically. Make sure to set the same `session ID` in the Connected Lens Module before pushing the Lens to Spectacles.
+
+2. Push the Lens to each Spectacles device from its own instance of Lens Studio.
+
+#### Testing Connected Lenses with Spectacles and Lens Studio
+
+- If a `Session ID` is configured and the experience does NOT use a [Custom Location](../../../spectacles/spectacles-frameworks/spectacles-sync-kit/features/connected-custom-location.mdx), the session should be joined from **Spectacles first** to complete the mapping process.
+  Since Lens Studio cannot generate a map that Spectacles can relocalize against, the initial mapping must be performed on Spectacles. Once Spectacles has successfully mapped the environment and joined the session, Lens Studio can then join using the same `Session ID` to enable synchronized interactions.
+
+#### Testing Connected Lenses with Spectacles devices:
+
+> See [Testing Connected Lenses with Spectacles devices:](https://developers.snap.com/spectacles/about-spectacles-features/connected-lenses/building-connected-lenses#testing-connected-lenses-with-spectacles-devices) in the upstream docs for diagrams.
+
+- For testing with multiple people, follow the instructions in [Using Connected Lenses](../../../spectacles/about-spectacles-features/connected-lenses/using-connected-lenses.mdx) to create and join a session.
+- For solo development with multiple Spectacles, enabling **Colocated for Solo Development** in the Spectacles App allows a single developer to test the Lens with normal mapping flow UI that doesn't require looking at another person.
+
+### Restrictions
+
+When building and using Connected Lenses, some APIs are restricted for privacy. For more information, see [Connected Lenses > Restrictions](../../../lens-studio/features/connected-lenses/connected-lenses-overview#restrictions).

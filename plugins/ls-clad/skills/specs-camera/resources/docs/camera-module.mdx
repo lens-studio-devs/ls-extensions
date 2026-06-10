@@ -1,0 +1,130 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# Camera Module
+
+Spectacles offers APIs to retrieve the camera frame – what the user is currently seeing – to better understand and build experiences around the user's real-world environment.
+
+## Requesting + Receiving Frames
+
+The CameraModule enables developers to request the camera frame. There are two types of frame requests: camera frame requests and still image requests. Camera frame requests deliver a steady stream of images, albeit at lower quality: this approach is recommended for applications that need video-like consistency in frame delivery. Still image requests, on the other hand, take longer to complete but result in a higher resolution image -- this is the preferred approach for applications that need high quality images for processing.
+
+## Camera Frame Requests
+
+To begin receiving camera frames, construct a `CameraRequest`, specifying the exact camera of interest (Spectacles have multiple cameras from which to choose: `Left_Color`, `Right_Color`, or `Default_Color`) and the desired resolution of the received frames (via `imageSmallerDimension`, which indicates the size in pixels of the smallest dimension to return).
+
+For example:
+
+```typescript
+this.createEvent('OnStartEvent').bind(() => {
+  const cameraModule: CameraModule = require('LensStudio:CameraModule');
+  const cameraRequest = CameraModule.createCameraRequest();
+  cameraRequest.cameraId = CameraModule.CameraId.Left_Color;
+  const cameraTexture = cameraModule.requestCamera(cameraRequest);
+});
+```
+
+> `createCameraRequest` may not be invoked inside `onAwake` event.
+
+The `requestCamera` method takes a `CameraRequest` and returns a `Texture`. The texture contains the opaque handle that refers to the underlying camera data, and can be used as an input into an `MLComponent` or uploaded to a remote service via `RemoteMediaModule`.
+
+To receive a notification each time the frame is updated, use the `CameraTextureProvider` which can be accessed via `cameraTexture.control`. The `CameraTextureProvider` has an `onNewFrame` event that can be utilized as shown below:
+
+```typescript
+const onNewFrame = (this.cameraTexture.control as CameraTextureProvider)
+  .onNewFrame;
+const registration = onNewFrame.add((frame: CameraModule.CameraFrame) => {
+  // Process the frame
+});
+this.createEvent('OnDestroyEvent').bind(() => {
+  onNewFrame.remove(registration);
+});
+```
+
+## Still Image Requests
+
+To request still image frames, create an `ImageRequest` from the `CameraModule`, then invoke `requestImage`. The `requestImage` method is asynchronous and will return an `ImageFrame` when complete, which contains the resulting image in a `Texture`, as well as a timestamp if needed.
+
+> Still image requests are not supported in the Lens Studio editor. Please run the Lens on Spectacles.
+
+```typescript
+@component
+export class StillImageRequest extends BaseScriptComponent {
+  @input
+  image: Image;
+
+  private cameraModule: CameraModule = require('LensStudio:CameraModule');
+
+  onAwake() {
+    this.requestStillImage();
+  }
+
+  async requestStillImage() {
+    const imageRequest = CameraModule.createImageRequest();
+    try {
+      const imageFrame: ImageFrame =
+        await this.cameraModule.requestImage(imageRequest);
+      // E.g, use the texture in some visual
+      this.image.mainPass.baseTex = imageFrame.texture;
+    } catch (error) {
+      print('Still image request failed: ' + error);
+    }
+  }
+}
+```
+
+## Getting Camera Information
+
+The Camera API also provides information about the cameras used on Spectacles in order to understand how the camera transforms 3D space into 2D space. This information is provided by the `DeviceCamera` which is accessible via the `DeviceInfoSystem`.
+
+```typescript
+// Select the camera
+this.createEvent('OnStartEvent').bind(() => {
+  const camera = global.deviceInfoSystem.getTrackingCameraForId(
+    CameraModule.CameraId.Left_Color
+  );
+  // Retrieve camera properties
+  const focalLength = camera.focalLength;
+  const principalPoint = camera.principalPoint;
+  const resolution = camera.resolution;
+  const pose = camera.pose;
+});
+```
+
+Additionally, `DeviceCamera` includes `project` and `unproject` methods that makes it easier to convert 3D points into 2D points and vice versa.
+
+## Code Example
+
+In Lens Studio click "+" in the Asset Browser window, select "General" and create a new TypeScript or JavaScript file. Copy and paste the following code into the file and attach the script to an object in the scene. Add an image component to the empty reference in the inspector.
+
+```typescript
+@component
+export class ContinuousCameraFrameExample extends BaseScriptComponent {
+  private cameraModule: CameraModule = require('LensStudio:CameraModule');
+  private cameraRequest: CameraModule.CameraRequest;
+  private cameraTexture: Texture;
+  private cameraTextureProvider: CameraTextureProvider;
+
+  @input
+  @hint('The image in the scene that will be showing the captured frame.')
+  uiImage: Image | undefined;
+
+  onAwake() {
+    this.createEvent('OnStartEvent').bind(() => {
+      this.cameraRequest = CameraModule.createCameraRequest();
+      this.cameraRequest.cameraId = CameraModule.CameraId.Default_Color;
+      this.cameraTexture = this.cameraModule.requestCamera(this.cameraRequest);
+      this.cameraTextureProvider = this.cameraTexture
+        .control as CameraTextureProvider;
+
+      this.cameraTextureProvider.onNewFrame.add((cameraFrame) => {
+        if (this.uiImage) {
+          this.uiImage.mainPass.baseTex = this.cameraTexture;
+        }
+      });
+    });
+  }
+}
+```

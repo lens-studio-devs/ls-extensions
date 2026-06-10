@@ -1,0 +1,10 @@
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+.venv-perfetto/
+node_modules/
+.idea/
+.claude
+.worktrees/
+**/.cursor/rules/remote/

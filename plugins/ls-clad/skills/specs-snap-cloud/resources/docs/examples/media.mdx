@@ -1,0 +1,1094 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# Media
+
+These examples show how to capture camera frames, video, and microphone audio from a Spectacles Lens and upload them directly to Supabase Storage. All three uploaders share a common `SnapCloudRequirements` configuration component and a `CameraService` to avoid multiple competing camera requests.
+
+---
+
+## Image Capture & Upload — Capture a camera still and save it to Storage
+
+### What it does
+
+Captures a high-quality still image from the device camera using the `CameraModule` API, JPEG-encodes the texture using Lens Studio's `Base64` utility, and uploads the resulting byte array to a Supabase Storage bucket. Optionally captures a composite texture (camera + rendered AR content) instead of the raw camera feed.
+
+### Setup
+
+1. Create a Storage bucket (e.g. `specs-bucket`) and apply authenticated-user policies.
+2. Open the **Example5-Media** scene and select the `ImageCaptureUploader` component.
+3. Assign `SnapCloudRequirements`, `storageBucket`, and optionally a `captureButton` (RectangleButton from Spectacles UI Kit).
+
+### Code
+
+```ts
+import { createClient } from 'SupabaseClient.lspkg/supabase-snapcloud';
+
+@component
+export class ImageCaptureUploader extends BaseScriptComponent {
+  private cameraModule: CameraModule = require('LensStudio:CameraModule');
+
+  @input supabaseProject: SupabaseProject;
+  @input storageBucket: string = 'specs-bucket';
+  @input imageQuality: number = 85; // JPEG quality 0-100
+
+  private client: any;
+  private uid: string;
+
+  onAwake() {
+    this.createEvent('OnStartEvent').bind(() => this.onStart());
+  }
+
+  async onStart() {
+    const options = { realtime: { heartbeatIntervalMs: 2500 } };
+    this.client = createClient(
+      this.supabaseProject.url,
+      this.supabaseProject.publicToken,
+      options
+    );
+    await this.signInWithRetry();
+  }
+
+  // Auth with retry — the OIDC token is sometimes not ready at startup
+  async signInWithRetry(attempt: number = 0): Promise<boolean> {
+    const { data, error } = await this.client.auth.signInWithIdToken({
+      provider: 'snapchat',
+      token: '',
+    });
+
+    if (!error && data?.user?.id) {
+      this.uid =
+        typeof data.user.id === 'string'
+          ? data.user.id
+          : JSON.stringify(data.user.id).replace(/^"(.*)"$/, '$1');
+      print('Authenticated: ' + this.uid);
+      return true;
+    }
+
+    // Retry up to 3 times for transient OIDC errors
+    if (attempt < 3) {
+      await this.delay(1.0);
+      return this.signInWithRetry(attempt + 1);
+    }
+
+    print('Authentication failed after retries');
+    return false;
+  }
+
+  // Called from a button tap or programmatically
+  async captureAndUpload() {
+    if (!this.uid) {
+      print('Not authenticated');
+      return;
+    }
+
+    // Request a high-quality still image from the camera
+    const imageRequest = CameraModule.createImageRequest();
+    (imageRequest as any).cameraId = CameraModule.CameraId.Default_Color;
+    const imageFrame = await this.cameraModule.requestImage(imageRequest);
+    const texture = imageFrame.texture;
+
+    if (!texture) {
+      print('No texture from camera');
+      return;
+    }
+
+    print('Captured: ' + texture.getWidth() + 'x' + texture.getHeight());
+
+    // Encode to JPEG bytes using Lens Studio Base64 utility
+    Base64.encodeJpeg(
+      texture,
+      this.imageQuality / 100,
+      async (base64String) => {
+        const binaryStr = Base64.decode(base64String);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+
+        await this.uploadToStorage(bytes);
+      }
+    );
+  }
+
+  async uploadToStorage(imageBytes: Uint8Array) {
+    const fileName = 'captures/' + this.uid + '_' + Date.now() + '.jpg';
+
+    const { data, error } = await this.client.storage
+      .from(this.storageBucket)
+      .upload(fileName, imageBytes, {
+        contentType: 'image/jpeg',
+        upsert: true,
+      });
+
+    if (error) {
+      print('Upload failed: ' + error.message);
+    } else {
+      print('Uploaded: ' + data.path);
+    }
+  }
+
+  private delay(seconds: number): Promise<void> {
+    return new Promise((resolve) => {
+      const ev = this.createEvent('DelayedCallbackEvent');
+      ev.bind(resolve);
+      ev.reset(seconds);
+    });
+  }
+
+  onDestroy() {
+    if (this.client) this.client.removeAllChannels();
+  }
+}
+```
+
+### Tips
+
+Use `CameraModule.requestImage` for still capture
+`requestImage` produces a higher-quality, non-streaming frame compared to reading from a live `CameraTextureProvider`. Use it for photos. For video, use the `CameraTextureProvider.onNewFrame` callback instead.
+
+Composite texture (AR + camera)
+Set `useCompositeTexture: true` and assign a `Render Target` texture to capture the final composited AR view instead of the raw camera feed. Wait for at least two frames after enabling before encoding — render targets may not have pixel data on the first frame.
+
+Folder organization in the bucket
+Prefix uploaded filenames with the user ID (e.g. `captures/<uid>_<timestamp>.jpg`) so you can scope storage policies to each user's folder and keep files organized.
+
+---
+
+## Video Capture & Upload — Record frames and upload a video session
+
+### What it does
+
+Records a sequence of JPEG frames from the camera at a configurable frame rate, stores them in memory during recording (to avoid I/O stutter), then converts and batch-uploads all frames to Supabase Storage after the user stops recording. An optional edge function can stitch the frames into a video file server-side.
+
+### Setup
+
+Same bucket setup as Image Capture. Assign a `recordButton` (start/stop toggle) and optionally an edge function name for stitching.
+
+### Code
+
+```ts
+import { createClient } from 'SupabaseClient.lspkg/supabase-snapcloud';
+
+type FrameData = { bytes: Uint8Array; index: number };
+
+@component
+export class VideoCaptureUploader extends BaseScriptComponent {
+  @input supabaseProject: SupabaseProject;
+  @input storageBucket: string = 'specs-bucket';
+  @input captureFrameRate: number = 15; // target FPS (0 = max)
+  @input maxDurationSeconds: number = 30;
+
+  private client: any;
+  private uid: string;
+  private isRecording: boolean = false;
+  private sessionId: string = '';
+  private capturedFrames: FrameData[] = [];
+  private cameraTexture: Texture;
+  private cameraTextureProvider: CameraTextureProvider;
+  private lastFrameTime: number = 0;
+  private frameInterval: number = 0;
+
+  onAwake() {
+    this.createEvent('OnStartEvent').bind(() => this.onStart());
+  }
+
+  async onStart() {
+    const options = { realtime: { heartbeatIntervalMs: 2500 } };
+    this.client = createClient(
+      this.supabaseProject.url,
+      this.supabaseProject.publicToken,
+      options
+    );
+    const { data } = await this.client.auth.signInWithIdToken({
+      provider: 'snapchat',
+      token: '',
+    });
+    if (data?.user?.id) {
+      this.uid =
+        typeof data.user.id === 'string'
+          ? data.user.id
+          : JSON.stringify(data.user.id).replace(/^"(.*)"$/, '$1');
+    }
+
+    this.frameInterval =
+      this.captureFrameRate > 0 ? 1 / this.captureFrameRate : 0;
+
+    // Set up camera texture
+    const cameraModule = require('LensStudio:CameraModule') as CameraModule;
+    const request = CameraModule.createCameraRequest();
+    (request as any).cameraId = CameraModule.CameraId.Default_Color;
+    const device = cameraModule.requestCamera(request);
+    this.cameraTexture = device.inputTexture;
+    this.cameraTextureProvider = this.cameraTexture
+      .control as CameraTextureProvider;
+
+    // Capture frames via onNewFrame callback for accurate timing
+    this.cameraTextureProvider.onNewFrame.add(() => {
+      if (!this.isRecording) return;
+      const now = getTime();
+      if (
+        this.frameInterval > 0 &&
+        now - this.lastFrameTime < this.frameInterval
+      )
+        return;
+      this.lastFrameTime = now;
+      this.captureFrame();
+    });
+  }
+
+  startRecording() {
+    if (this.isRecording) return;
+    this.capturedFrames = [];
+    this.sessionId = 'vid_' + Date.now();
+    this.isRecording = true;
+    print('Recording started: ' + this.sessionId);
+
+    // Auto-stop after max duration
+    const stopEvent = this.createEvent('DelayedCallbackEvent');
+    stopEvent.bind(() => {
+      if (this.isRecording) this.stopRecording();
+    });
+    stopEvent.reset(this.maxDurationSeconds);
+  }
+
+  stopRecording() {
+    if (!this.isRecording) return;
+    this.isRecording = false;
+    print('Recording stopped. Frames: ' + this.capturedFrames.length);
+    this.uploadSession();
+  }
+
+  // Called from onNewFrame — stores raw JPEG bytes in memory (no uploads during recording)
+  captureFrame() {
+    const frameIndex = this.capturedFrames.length;
+
+    Base64.encodeJpeg(this.cameraTexture, 0.5, (b64) => {
+      const bin = Base64.decode(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      this.capturedFrames.push({ bytes, index: frameIndex });
+    });
+  }
+
+  // Upload all frames after recording stops
+  async uploadSession() {
+    if (this.capturedFrames.length === 0) return;
+    print('Uploading ' + this.capturedFrames.length + ' frames...');
+
+    for (const frame of this.capturedFrames) {
+      const path = `video-sessions/${this.sessionId}/frame_${String(frame.index).padStart(4, '0')}.jpg`;
+      const { error } = await this.client.storage
+        .from(this.storageBucket)
+        .upload(path, frame.bytes, { contentType: 'image/jpeg', upsert: true });
+      if (error) print('Frame upload error: ' + error.message);
+    }
+
+    print('Session uploaded: ' + this.sessionId);
+    this.capturedFrames = [];
+  }
+
+  onDestroy() {
+    if (this.client) this.client.removeAllChannels();
+  }
+}
+```
+
+### Tips
+
+Capture to memory, upload after
+Uploading frames during recording creates I/O contention and causes frame drops. The example stores all frames as `Uint8Array` objects in a plain array and only begins uploading after the user stops recording.
+
+Use `onNewFrame` instead of `UpdateEvent`
+`CameraTextureProvider.onNewFrame` fires at the true camera frame rate and is synchronized with new pixel data. `UpdateEvent` fires at the render loop rate and can capture duplicate frames between camera updates.
+
+Server-side stitching
+After uploading frames, call an edge function with the `sessionId` to stitch them into an MP4 using FFmpeg (available in Deno via `Deno.run`). The `CompositeCaptureUploader` in the package shows the full end-to-end flow including Spotlight sharing.
+
+---
+
+## Audio Capture & Upload — Record microphone audio and upload as WAV
+
+### What it does
+
+Accesses the microphone via `MicrophoneAudioProvider`, records PCM audio frames during a session, converts them to 16-bit PCM WAV format after the user stops recording, and uploads the WAV file to Supabase Storage.
+
+### Setup
+
+1. Add a **Microphone Audio** asset to your scene (Asset Browser → Audio → Microphone Audio).
+2. In the `AudioCaptureUploader` component, assign the microphone asset and set `storageBucket`.
+3. Ensure your Lens has microphone permissions enabled under Lens Info → Permissions.
+
+### Code
+
+```ts
+import { createClient } from 'SupabaseClient.lspkg/supabase-snapcloud';
+
+@component
+export class AudioCaptureUploader extends BaseScriptComponent {
+  @input supabaseProject: SupabaseProject;
+  @input storageBucket: string = 'specs-bucket';
+  @input storageFolder: string = 'audio-recordings';
+  @input microphoneAsset: AudioTrackAsset;
+  @input sampleRate: number = 16000; // 16 kHz recommended for voice
+
+  private client: any;
+  private uid: string;
+  private micControl: MicrophoneAudioProvider;
+  private isRecording: boolean = false;
+  private sessionId: string = '';
+  private recordedFrames: { data: Float32Array; shape: vec3 }[] = [];
+  private updateEvent: UpdateEvent;
+
+  onAwake() {
+    this.createEvent('OnStartEvent').bind(() => this.onStart());
+  }
+
+  async onStart() {
+    const options = { realtime: { heartbeatIntervalMs: 2500 } };
+    this.client = createClient(
+      this.supabaseProject.url,
+      this.supabaseProject.publicToken,
+      options
+    );
+    const { data } = await this.client.auth.signInWithIdToken({
+      provider: 'snapchat',
+      token: '',
+    });
+    if (data?.user?.id) {
+      this.uid =
+        typeof data.user.id === 'string'
+          ? data.user.id
+          : JSON.stringify(data.user.id).replace(/^"(.*)"$/, '$1');
+    }
+
+    // Set up microphone
+    this.micControl = this.microphoneAsset.control as MicrophoneAudioProvider;
+  }
+
+  startRecording() {
+    if (this.isRecording) return;
+    this.recordedFrames = [];
+    this.sessionId = 'audio_' + Date.now();
+    this.isRecording = true;
+
+    // Collect audio frames on UpdateEvent while recording
+    this.updateEvent = this.createEvent('UpdateEvent');
+    this.updateEvent.bind(() => {
+      if (!this.isRecording) return;
+      const shape = this.micControl.getAudioFrame(0).shape;
+      const floatData = new Float32Array(shape.x * shape.y);
+      this.micControl.getAudioFrame(0).toFloat32Array(floatData);
+      this.recordedFrames.push({ data: floatData, shape });
+    });
+
+    print('Audio recording started');
+  }
+
+  stopRecording() {
+    if (!this.isRecording) return;
+    this.isRecording = false;
+    if (this.updateEvent) this.updateEvent.enabled = false;
+    print('Audio recording stopped. Frames: ' + this.recordedFrames.length);
+    this.convertAndUpload();
+  }
+
+  async convertAndUpload() {
+    if (this.recordedFrames.length === 0) return;
+
+    // Build WAV file from recorded PCM frames
+    const wavBytes = this.buildWav(this.recordedFrames, this.sampleRate);
+    const path = `${this.storageFolder}/${this.sessionId}.wav`;
+
+    const { data, error } = await this.client.storage
+      .from(this.storageBucket)
+      .upload(path, wavBytes, { contentType: 'audio/wav', upsert: true });
+
+    if (error) {
+      print('Audio upload failed: ' + error.message);
+    } else {
+      print('Audio uploaded: ' + data.path);
+    }
+
+    this.recordedFrames = [];
+  }
+
+  buildWav(
+    frames: { data: Float32Array; shape: vec3 }[],
+    sampleRate: number
+  ): Uint8Array {
+    // Flatten all PCM frames and convert Float32 to Int16
+    const totalSamples = frames.reduce((sum, f) => sum + f.data.length, 0);
+    const pcm16 = new Int16Array(totalSamples);
+    let offset = 0;
+    for (const frame of frames) {
+      for (let i = 0; i < frame.data.length; i++) {
+        pcm16[offset++] = Math.max(
+          -32768,
+          Math.min(32767, frame.data[i] * 32767)
+        );
+      }
+    }
+
+    // Write WAV header + PCM data
+    const dataBytes = totalSamples * 2;
+    const buffer = new ArrayBuffer(44 + dataBytes);
+    const view = new DataView(buffer);
+    const writeStr = (o: number, s: string) => {
+      for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i));
+    };
+
+    writeStr(0, 'RIFF');
+    view.setUint32(4, 36 + dataBytes, true);
+    writeStr(8, 'WAVE');
+    writeStr(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true); // PCM
+    view.setUint16(22, 1, true); // mono
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeStr(36, 'data');
+    view.setUint32(40, dataBytes, true);
+
+    for (let i = 0; i < pcm16.length; i++) {
+      view.setInt16(44 + i * 2, pcm16[i], true);
+    }
+
+    return new Uint8Array(buffer);
+  }
+
+  onDestroy() {
+    if (this.client) this.client.removeAllChannels();
+  }
+}
+```
+
+### Tips
+
+Sample rate selection
+Use 16,000 Hz for voice. Higher rates (44.1k, 48k) significantly increase file size without improving intelligibility for speech. If audio sounds like a chipmunk on playback, the device may not support the requested sample rate — fall back to 16 kHz.
+
+Convert after recording
+Float32 to PCM16 conversion and WAV header writing happen after the user stops recording. Doing this work during recording would miss frames and degrade audio quality.
+
+Composite audio + video
+The `CompositeCaptureUploader` in the package combines this audio pipeline with the video frame pipeline, synchronizes them to the same session ID, and calls an edge function to merge audio and video server-side.
+
+---
+
+## Video Streaming — Broadcast live camera frames via Realtime to a web viewer
+
+### What it does
+
+Streams live JPEG frames from the Spectacles camera to any connected web viewer using Supabase Realtime broadcast. Unlike the Video Capture & Upload example, no file is stored — frames are transmitted in real time over a WebSocket channel. Supports both raw camera mode and composite (camera + AR) mode with a configurable buffer delay.
+
+### Setup
+
+1. Open the **Example5-Media** scene and select the `VideoStreamingController` component.
+2. Assign `SnapCloudRequirements`, a `CameraService`, and a `streamButton`.
+3. Set `streamingChannelName` (must match what the web viewer connects to).
+4. Keep `streamQuality` at **15** and `resolutionScale` at **0.3** — these stay under the 250 KB Realtime message limit.
+5. Open the web viewer in a browser, enter your Supabase URL, anon key, and the same channel name, then click Connect.
+
+### Lens Studio code
+
+```ts
+import { createClient } from 'SupabaseClient.lspkg/supabase-snapcloud';
+
+@component
+export class VideoStreamingController extends BaseScriptComponent {
+  @input snapCloudRequirements: SnapCloudRequirements;
+  @input streamingChannelName: string = 'live-video-stream';
+
+  // Keep LOW to stay under Supabase Realtime 250 KB message limit
+  @input @widget(new SliderWidget(1, 100, 1)) streamQuality: number = 15;
+  @input @widget(new SliderWidget(1, 30, 1)) streamFPS: number = 30;
+  @input @widget(new SliderWidget(0.1, 1.0, 0.1)) resolutionScale: number = 0.3;
+
+  @input cameraService: CameraService;
+  @input useCompositeTexture: boolean = false;
+  @input @allowUndefined compositeTexture: Texture;
+
+  private supabaseClient: any;
+  private realtimeChannel: any;
+  private isStreaming: boolean = false;
+  private frameCount: number = 0;
+  private streamSessionId: string = '';
+  private cameraTextureProvider: CameraTextureProvider;
+  private cameraTexture: Texture;
+  private frameRegistration: any;
+  private lastFrameTime: number = 0;
+
+  onAwake() {
+    this.createEvent('OnStartEvent').bind(() => this.init());
+    this.createEvent('OnDestroyEvent').bind(() => this.cleanup());
+  }
+
+  async init() {
+    const project = this.snapCloudRequirements.getSupabaseProject();
+    const { createClient } = require('SupabaseClient.lspkg/supabase-snapcloud');
+    this.supabaseClient = createClient(project.url, project.publicToken, {
+      realtime: { heartbeatIntervalMs: 2500 },
+    });
+
+    await this.supabaseClient.auth.signInWithIdToken({
+      provider: 'snapchat',
+      token: '',
+    });
+
+    // Use CameraService texture (avoids competing camera requests)
+    this.cameraTexture = this.cameraService.cameraTexture;
+    this.cameraTextureProvider = this.cameraService.cameraTextureProvider;
+
+    // Subscribe to Realtime channel
+    this.realtimeChannel = this.supabaseClient.channel(
+      this.streamingChannelName,
+      {
+        config: { broadcast: { self: false } },
+      }
+    );
+    this.realtimeChannel.subscribe((status) => {
+      if (status === 'SUBSCRIBED') print('Streaming channel ready');
+    });
+  }
+
+  startStreaming() {
+    if (this.isStreaming) return;
+    this.isStreaming = true;
+    this.streamSessionId = 'stream_' + Date.now();
+    this.frameCount = 0;
+
+    const frameInterval = 1000 / this.streamFPS;
+
+    // Camera mode: use onNewFrame for accurate timing
+    this.frameRegistration = this.cameraTextureProvider.onNewFrame.add(() => {
+      if (!this.isStreaming) return;
+      const now = Date.now();
+      if (now - this.lastFrameTime < frameInterval) return;
+      this.lastFrameTime = now;
+      this.streamFrame();
+    });
+  }
+
+  async streamFrame() {
+    const texture =
+      this.useCompositeTexture && this.compositeTexture
+        ? this.compositeTexture
+        : this.cameraTexture;
+
+    if (!texture || texture.getWidth() === 0) return;
+
+    this.frameCount++;
+
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const quality =
+        this.streamQuality > 50
+          ? CompressionQuality.IntermediateQuality
+          : CompressionQuality.LowQuality;
+      Base64.encodeTextureAsync(
+        texture,
+        resolve,
+        reject,
+        quality,
+        EncodingType.Jpg
+      );
+    });
+
+    const frameData = base64 + '|||FRAME_END|||';
+
+    // Warn if approaching the 250 KB Realtime limit
+    if (frameData.length > 250000) {
+      print('WARNING: frame exceeds 250 KB — reduce quality or resolution');
+    }
+
+    this.realtimeChannel.send({
+      type: 'broadcast',
+      event: 'video-frame',
+      payload: {
+        sessionId: this.streamSessionId,
+        frameNumber: this.frameCount,
+        frameData,
+        metadata: { fps: this.streamFPS, quality: this.streamQuality },
+      },
+    });
+  }
+
+  stopStreaming() {
+    this.isStreaming = false;
+    if (this.frameRegistration) {
+      this.cameraTextureProvider.onNewFrame.remove(this.frameRegistration);
+      this.frameRegistration = null;
+    }
+    this.realtimeChannel.send({
+      type: 'broadcast',
+      event: 'stream-ended',
+      payload: {
+        sessionId: this.streamSessionId,
+        totalFrames: this.frameCount,
+      },
+    });
+  }
+
+  cleanup() {
+    if (this.isStreaming) this.stopStreaming();
+    if (this.supabaseClient) this.supabaseClient.removeAllChannels();
+  }
+}
+```
+
+### Web viewer
+
+The companion web page subscribes to the same Realtime channel and renders incoming JPEG frames on a `<canvas>` element using `requestAnimationFrame` for smooth playback.
+
+```html
+<!-- video-stream-viewer.html — key connection logic -->
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<canvas id="streamCanvas" width="640" height="480"></canvas>
+<script>
+  const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    realtime: { heartbeatIntervalMs: 2500 },
+  });
+
+  const channel = client.channel('live-video-stream', {
+    config: { broadcast: { self: false } },
+  });
+
+  const canvas = document.getElementById('streamCanvas');
+  const ctx = canvas.getContext('2d');
+  const frameBuffer = [];
+
+  channel
+    .on('broadcast', { event: 'video-frame' }, (msg) => {
+      const { frameData, frameNumber } = msg.payload;
+      // Strip frame marker and decode JPEG
+      const base64 = frameData.replace('|||FRAME_END|||', '');
+      const img = new Image();
+      img.onload = () => frameBuffer.push(img);
+      img.src = 'data:image/jpeg;base64,' + base64;
+    })
+    .on('broadcast', { event: 'stream-ended' }, () => {
+      console.log('Stream ended');
+    })
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED')
+        console.log('Connected — waiting for stream');
+    });
+
+  // Render frames from buffer using requestAnimationFrame
+  function render() {
+    if (frameBuffer.length > 0) {
+      const frame = frameBuffer.shift();
+      canvas.width = frame.width;
+      canvas.height = frame.height;
+      ctx.drawImage(frame, 0, 0);
+    }
+    requestAnimationFrame(render);
+  }
+  render();
+</script>
+```
+
+### Tips
+
+Stay under the 250 KB Realtime limit
+Supabase Realtime enforces a **250 KB per-message limit**. At `streamQuality: 15` and `resolutionScale: 0.3` the encoded frame is typically 30–80 KB. Increasing quality or resolution quickly pushes frames over the limit and they will be silently dropped.
+
+Composite mode requires a buffer delay
+When streaming composite textures (camera + AR overlay), the render target may not have valid pixels on the first few frames. The example uses a configurable `compositeBufferDelay` (default 5 s) to fill a frame queue before sending begins.
+
+`onNewFrame` vs `UpdateEvent` for camera mode
+Always use `CameraTextureProvider.onNewFrame` for camera streaming. The callback fires at the true camera frame rate and guarantees the texture has new pixel data. `UpdateEvent` can fire between camera frames and produce duplicate or black frames.
+
+---
+
+## Audio Streaming — Broadcast live microphone audio via Realtime to a web listener
+
+### What it does
+
+Records microphone audio in 500 ms chunks, converts each chunk to WAV format, base64-encodes it, and broadcasts it over a Supabase Realtime channel. A companion web page decodes and plays each chunk in sequence using the Web Audio API for near-real-time audio playback.
+
+### Setup
+
+1. Add a **Microphone Audio** asset and assign it to `microphoneAsset`.
+2. Assign `SnapCloudRequirements` and set `streamingChannelName`.
+3. Enable microphone permissions under Lens Info → Permissions.
+4. Open the web listener in a browser and connect to the same channel.
+
+### Lens Studio code
+
+```ts
+import { createClient } from 'SupabaseClient.lspkg/supabase-snapcloud';
+
+@component
+export class AudioStreamingController extends BaseScriptComponent {
+  @input snapCloudRequirements: SnapCloudRequirements;
+  @input streamingChannelName: string = 'live-audio-stream';
+  @input microphoneAsset: AudioTrackAsset;
+  @input @widget(new SliderWidget(8000, 48000, 1000)) sampleRate: number =
+    16000;
+  @input @widget(new SliderWidget(100, 1000, 100)) chunkSizeMs: number = 500;
+
+  private supabaseClient: any;
+  private realtimeChannel: any;
+  private micControl: MicrophoneAudioProvider;
+  private isStreaming: boolean = false;
+  private chunkCount: number = 0;
+  private audioBuffer: Float32Array[] = [];
+  private audioUpdateEvent: UpdateEvent;
+  private streamingInterval: any;
+  private streamSessionId: string = '';
+
+  onAwake() {
+    this.createEvent('OnStartEvent').bind(() => this.init());
+  }
+
+  async init() {
+    const project = this.snapCloudRequirements.getSupabaseProject();
+    const { createClient } = require('SupabaseClient.lspkg/supabase-snapcloud');
+    this.supabaseClient = createClient(project.url, project.publicToken, {
+      realtime: { heartbeatIntervalMs: 2500 },
+    });
+
+    await this.supabaseClient.auth.signInWithIdToken({
+      provider: 'snapchat',
+      token: '',
+    });
+
+    this.micControl = this.microphoneAsset.control as MicrophoneAudioProvider;
+    this.micControl.sampleRate = this.sampleRate;
+
+    // Collect raw audio frames every update while streaming
+    this.audioUpdateEvent = this.createEvent('UpdateEvent');
+    this.audioUpdateEvent.bind(() => {
+      if (!this.isStreaming) return;
+      const frameSize = this.micControl.maxFrameSize;
+      let frame = new Float32Array(frameSize);
+      const shape = this.micControl.getAudioFrame(frame);
+      if (shape.x > 0) {
+        this.audioBuffer.push(frame.subarray(0, shape.x));
+      }
+    });
+    this.audioUpdateEvent.enabled = false;
+
+    this.realtimeChannel = this.supabaseClient.channel(
+      this.streamingChannelName,
+      {
+        config: { broadcast: { self: false } },
+      }
+    );
+    this.realtimeChannel.subscribe((status) => {
+      if (status === 'SUBSCRIBED') print('Audio streaming channel ready');
+    });
+  }
+
+  startStreaming() {
+    if (this.isStreaming) return;
+    this.isStreaming = true;
+    this.streamSessionId = 'audio_' + Date.now();
+    this.chunkCount = 0;
+    this.audioBuffer = [];
+
+    this.micControl.start();
+    this.audioUpdateEvent.enabled = true;
+
+    // Send a WAV chunk every chunkSizeMs milliseconds
+    const sendChunk = () => {
+      if (!this.isStreaming) return;
+      if (this.audioBuffer.length > 0) {
+        const chunk = this.buildWavChunk(this.audioBuffer);
+        this.audioBuffer = [];
+        this.chunkCount++;
+
+        this.realtimeChannel.send({
+          type: 'broadcast',
+          event: 'audio-chunk',
+          payload: {
+            sessionId: this.streamSessionId,
+            chunkNumber: this.chunkCount,
+            data: chunk, // base64-encoded WAV
+            metadata: {
+              sampleRate: this.sampleRate,
+              format: 'wav',
+              channels: 1,
+            },
+          },
+        });
+      }
+      this.streamingInterval = this.createEvent('DelayedCallbackEvent');
+      this.streamingInterval.bind(sendChunk);
+      this.streamingInterval.reset(this.chunkSizeMs / 1000);
+    };
+    sendChunk();
+  }
+
+  // Combine Float32 frames → 16-bit PCM WAV → base64
+  buildWavChunk(frames: Float32Array[]): string {
+    let total = 0;
+    for (const f of frames) total += f.length;
+    const pcm = new Int16Array(total);
+    let i = 0;
+    for (const f of frames) {
+      for (let s = 0; s < f.length; s++) {
+        pcm[i++] = Math.max(-32768, Math.min(32767, f[s] * 32767));
+      }
+    }
+    const dataSize = pcm.length * 2;
+    const buf = new ArrayBuffer(44 + dataSize);
+    const v = new DataView(buf);
+    const str = (o: number, s: string) => {
+      for (let j = 0; j < s.length; j++) v.setUint8(o + j, s.charCodeAt(j));
+    };
+    str(0, 'RIFF');
+    v.setUint32(4, 36 + dataSize, true);
+    str(8, 'WAVE');
+    str(12, 'fmt ');
+    v.setUint32(16, 16, true);
+    v.setUint16(20, 1, true);
+    v.setUint16(22, 1, true);
+    v.setUint32(24, this.sampleRate, true);
+    v.setUint32(28, this.sampleRate * 2, true);
+    v.setUint16(32, 2, true);
+    v.setUint16(34, 16, true);
+    str(36, 'data');
+    v.setUint32(40, dataSize, true);
+    for (let j = 0; j < pcm.length; j++) v.setInt16(44 + j * 2, pcm[j], true);
+    const bytes = new Uint8Array(buf);
+    let bin = '';
+    for (let j = 0; j < bytes.length; j++) bin += String.fromCharCode(bytes[j]);
+    return btoa(bin);
+  }
+
+  stopStreaming() {
+    this.isStreaming = false;
+    this.micControl.stop();
+    this.audioUpdateEvent.enabled = false;
+  }
+
+  onDestroy() {
+    if (this.isStreaming) this.stopStreaming();
+    if (this.supabaseClient) this.supabaseClient.removeAllChannels();
+  }
+}
+```
+
+### Web listener
+
+The companion web page uses the **Web Audio API** to decode and play each incoming WAV chunk:
+
+```html
+<!-- audio-stream-listener.html — key playback logic -->
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script>
+  const audioCtx = new AudioContext();
+  const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    realtime: { heartbeatIntervalMs: 2500 },
+  });
+
+  const channel = client.channel('live-audio-stream', {
+    config: { broadcast: { self: false } },
+  });
+
+  channel
+    .on('broadcast', { event: 'audio-chunk' }, async (msg) => {
+      const { data, metadata } = msg.payload;
+
+      // Decode base64 WAV → ArrayBuffer → AudioBuffer → play
+      const binary = atob(data);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+      try {
+        const audioBuffer = await audioCtx.decodeAudioData(bytes.buffer);
+        const source = audioCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(audioCtx.destination);
+        source.start();
+      } catch (err) {
+        console.error('Audio decode error:', err);
+      }
+    })
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') console.log('Connected — waiting for audio');
+    });
+</script>
+```
+
+### Tips
+
+Read back the actual sample rate
+The device may not support the requested sample rate. Always read `micControl.sampleRate` after setting it and use the returned value when building the WAV header — otherwise playback will be pitch-shifted.
+
+Chunk size trade-off
+Smaller chunks (100–200 ms) reduce latency but increase Realtime overhead. Larger chunks (500–1000 ms) are more efficient but add noticeable delay. The default 500 ms is a good starting point for most use cases.
+
+Resume AudioContext on user gesture
+Browsers block `AudioContext` creation until the user interacts with the page. Wrap `new AudioContext()` in a click handler or call `audioCtx.resume()` inside a button callback.
+
+---
+
+## Composite Streaming — Synchronized live video + audio broadcast via Realtime
+
+### What it does
+
+Combines the video and audio streaming pipelines into a single synchronized session. Both streams share the same `sessionId` so the web viewer can align audio chunks to video frames. The video side uses buffered composite mode (camera + AR overlay), and the audio side runs at 500 ms chunks. A companion Node.js server on Railway can optionally stitch the streams into a single MP4 using FFmpeg.
+
+### Setup
+
+1. Assign `SnapCloudRequirements`, `CameraService`, `microphoneAsset`, and separate channel names for video (`live-composite-video`) and audio (`live-composite-audio`).
+2. Assign a composite `Render Target` texture in the `compositeTexture` field.
+3. Set `compositeBufferDelay` to at least 3–5 seconds to allow the GPU to render content before streaming begins.
+4. Open the composite web viewer in a browser, enter your project credentials, and connect to both channels.
+
+### Lens Studio code (core pattern)
+
+```ts
+import { createClient } from 'SupabaseClient.lspkg/supabase-snapcloud';
+
+@component
+export class CompositeStreamingController extends BaseScriptComponent {
+  @input snapCloudRequirements: SnapCloudRequirements;
+  @input videoChannelName: string = 'live-composite-video';
+  @input audioChannelName: string = 'live-composite-audio';
+  @input cameraService: CameraService;
+  @input compositeTexture: Texture;
+  @input microphoneAsset: AudioTrackAsset;
+  @input compositeBufferDelay: number = 5; // seconds to buffer before sending
+
+  private supabaseClient: any;
+  private videoChannel: any;
+  private audioChannel: any;
+  private sessionId: string = '';
+
+  onAwake() {
+    this.createEvent('OnStartEvent').bind(() => this.init());
+  }
+
+  async init() {
+    const project = this.snapCloudRequirements.getSupabaseProject();
+    const { createClient } = require('SupabaseClient.lspkg/supabase-snapcloud');
+    this.supabaseClient = createClient(project.url, project.publicToken, {
+      realtime: { heartbeatIntervalMs: 2500 },
+    });
+
+    await this.supabaseClient.auth.signInWithIdToken({
+      provider: 'snapchat',
+      token: '',
+    });
+
+    // Both channels share the same session ID so the web viewer can sync them
+    this.sessionId = 'composite_' + Date.now();
+
+    this.videoChannel = this.supabaseClient.channel(this.videoChannelName, {
+      config: { broadcast: { self: false } },
+    });
+    this.audioChannel = this.supabaseClient.channel(this.audioChannelName, {
+      config: { broadcast: { self: false } },
+    });
+
+    this.videoChannel.subscribe();
+    this.audioChannel.subscribe();
+  }
+
+  // Video frames are buffered for compositeBufferDelay seconds before sending
+  // to ensure the GPU has had time to render AR content into the Render Target.
+  // Audio chunks are sent immediately at 500 ms intervals.
+  // Both payloads include the same sessionId for client-side synchronization.
+
+  sendVideoFrame(base64Frame: string, frameNumber: number) {
+    this.videoChannel.send({
+      type: 'broadcast',
+      event: 'composite-video-frame',
+      payload: {
+        sessionId: this.sessionId,
+        frameNumber,
+        frameData: base64Frame + '|||FRAME_END|||',
+      },
+    });
+  }
+
+  sendAudioChunk(wavBase64: string, chunkNumber: number) {
+    this.audioChannel.send({
+      type: 'broadcast',
+      event: 'composite-audio-chunk',
+      payload: {
+        sessionId: this.sessionId,
+        chunkNumber,
+        data: wavBase64,
+        metadata: { format: 'wav', channels: 1 },
+      },
+    });
+  }
+
+  onDestroy() {
+    if (this.supabaseClient) this.supabaseClient.removeAllChannels();
+  }
+}
+```
+
+### Web viewer (synchronized playback)
+
+```html
+<!-- composite-stream-viewer.html — key sync logic -->
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<canvas id="videoCanvas"></canvas>
+<script>
+  const audioCtx = new AudioContext();
+  const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    realtime: { heartbeatIntervalMs: 2500 },
+  });
+
+  const videoChannel = client.channel('live-composite-video');
+  const audioChannel = client.channel('live-composite-audio');
+  const canvas = document.getElementById('videoCanvas');
+  const ctx = canvas.getContext('2d');
+  const videoBuffer = [];
+
+  videoChannel
+    .on('broadcast', { event: 'composite-video-frame' }, (msg) => {
+      const base64 = msg.payload.frameData.replace('|||FRAME_END|||', '');
+      const img = new Image();
+      img.onload = () => videoBuffer.push(img);
+      img.src = 'data:image/jpeg;base64,' + base64;
+    })
+    .subscribe();
+
+  audioChannel
+    .on('broadcast', { event: 'composite-audio-chunk' }, async (msg) => {
+      const bytes = Uint8Array.from(atob(msg.payload.data), (c) =>
+        c.charCodeAt(0)
+      );
+      const audioBuffer = await audioCtx.decodeAudioData(bytes.buffer);
+      const source = audioCtx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioCtx.destination);
+      source.start();
+    })
+    .subscribe();
+
+  // Render video frames
+  (function render() {
+    if (videoBuffer.length > 0) {
+      const frame = videoBuffer.shift();
+      canvas.width = frame.width;
+      canvas.height = frame.height;
+      ctx.drawImage(frame, 0, 0);
+    }
+    requestAnimationFrame(render);
+  })();
+</script>
+```
+
+### Tips
+
+Composite buffer delay is essential
+The `compositeBufferDelay` exists because the GPU needs several frames to render AR content into the Render Target. Without the delay, early frames will be black or show only the camera feed without AR overlays.
+
+Server-side stitching with FFmpeg
+For a permanent MP4 recording, deploy the companion Node.js stitcher to Railway. It receives uploaded frame files and WAV audio, then uses FFmpeg to merge them. See the `media-example-server-composite-stitcher` folder in the SnapCloud Examples package for the full server code.
+
+Two channels, one session ID
+Using separate channels for video and audio keeps each message well under the 250 KB limit. The shared `sessionId` in every payload lets the web viewer align the two streams without a dedicated sync protocol.

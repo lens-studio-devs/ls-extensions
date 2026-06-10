@@ -1,0 +1,46 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# Custom Locations
+
+## Overview
+
+Custom Locations is an easy to use way of mapping real life areas and creating AR experiences around those locations. It uses the Custom Locations Lens to first create Custom Location maps of real-world locations, and then loading these Custom Locations into Lens Studio to author AR content.
+
+The Custom Locations Lens can be used to map individual locations, to create groups of locations and to add additional localization viewpoints to a pre-existing location.
+
+> **Previous Versions:** This Lens and its components are an evolution of the [Custom Location Creator Lens](https://developers.snap.com/lens-studio/features/location-ar/custom-landmarker-scan) available on mobile. The `LocatedAtComponent` is still used, and the [Import Mesh to Lens Studio](https://developers.snap.com/lens-studio/features/location-ar/custom-landmarker-scan#import-mesh-to-lens-studio) guide is still applicable.
+
+### What does each Custom Location contain?
+
+A finished Custom Location contains:
+
+- A colored mesh of the location scanned
+- A series of localization viewpoints
+
+The colored mesh will be visible within Lens Studio and can be used to help the developer move virtual objects to their correct location in the editor before deploying to device.
+The localization viewpoints are captures from which the resulting Lens -- the Lens you're developing at this custom location -- can localize against. When the user of your Lens is approximately in the same position as one of these viewpoints, the system will recognize its position in space and display your content appropriately.
+
+> **Viewpoints:** The Custom Locations Lens will capture many viewpoints during a scan; however, it is limited by where you scan from. For the best results when scanning, move laterally around the location and capture angles you expect users to be viewing from. Yellow camera objects will spawn during a scan to indicate viewpoint locations and angles. If a scan is later determined to be insufficient, a new Incremental Scan can be created with additional viewpoints. However, this will create a new ID and the Lens will need to be updated.
+
+> Saved IDs in the Custom Location Creator Lens are only stored locally. Be aware that factory resetting your device may lead to these location IDs being forgotten. Additionally, published locations remain public and do not get erased by local removal.
+
+## Getting started
+
+> Step-by-step procedures (scanning, importing the mesh into Lens Studio, location groups, and
+> incremental scans) live in `SKILL.md` — Steps 1–3, *Location Groups*, and *Incremental scans*.
+> This doc keeps only the upstream-doc context and guidance not repeated there.
+
+- See [Creating a Custom Location](https://developers.snap.com/spectacles/about-spectacles-features/apis/custom-locations#creating-a-custom-location) in the upstream docs for a video walkthrough of the scanning flow.
+- **Legal disclaimer (shown before publishing):** After you upload this Location to Snap, you will receive a unique reference ID. Anyone with access to this ID will be able to use this Location in Lens Studio to publish a Lens, so avoid uploading a Location that contains sensitive personal information.
+- Upon publishing, you are presented with the new scan ID and an opportunity to name the scan. The name is local to the scanning Lens only and does not propagate to Lens Studio.
+- A sample project is available in the [Spectacles-Sample](https://github.com/Snapchat/Spectacles-Sample) GitHub repository; its README walks through an example Lens.
+
+## Methods for Capturing Optimal Viewpoints
+
+- Make sure that your device is in constant motion.
+- Ideally, move in a steady “sweeping figure 8” motion for a few seconds, while moving around in the space you are scanning. This will significantly improve the quality of the mesh you are constructing.
+- Avoid remaining still in space and rotating your head around one spot.
+- Avoid extreme vertical viewing angles (pointing up and pointing down), and avoid fast camera motion.

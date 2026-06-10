@@ -1,0 +1,52 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# Connected Custom Location
+
+> Upstream docs for figures and diagrams: [Connected Custom Location](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/features/connected-custom-location).
+
+Location Based Experience brings together [Custom Location](https://developers.snap.com/spectacles/about-spectacles-features/apis/custom-locations) and the [Spectacles Sync Kit](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/overview.mdx) to enable persistent, shared AR experiences tied to real-world environments. By pre-scanning a location, creators can deliver seamless multiplayer interactions without the need to restart the mapping flow each time the Lens is launched. New features like Guided Mode and Same Session Setup further simplify the experience, making development faster and more efficient.
+
+### Creating a Custom Location
+
+A detailed workflow for setting up a Custom Location can be found in the [Custom Location documentation](https://developers.snap.com/spectacles/about-spectacles-features/apis/custom-locations).
+
+Currently this feature only supports one location. `Custom Location Group` is not supported.
+
+### Setting up Colocated World
+
+> See [Setting up Colocated World](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/features/connected-custom-location#setting-up-colocated-world) in the upstream docs for diagrams.
+
+Once a Custom Location has been created in Lens Studio, go to `Colocated World` Scene Object and place `Location` asset into `Located At component`.
+
+### Creating a Location Mesh Visualization for Content Placement
+
+> See [Creating a Location Mesh Visualization for Content Placement](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/features/connected-custom-location#creating-a-location-mesh-visualization-for-content-placement) in the upstream docs for diagrams.
+
+When using a Custom Location for a Connected Lens, the origin point `(0, 0, 0)` does not align with the device's position upon completing the mapping process. Instead, the origin is determined by the location where the map was originally generated in Spectacles. Including the `Location Mesh` in Lens Studio helps accurately visualize and position content within the scene.
+
+1. To create a `Location Mesh` and `Location Material`, click the `“+”` button in Lens Studio and select `Location Mesh` and `Location Material` from the options.
+
+2. In the `Location Mesh` asset, assign the `Location` asset to the `Location` input field.
+
+3. Create a Scene Object with a `RenderMeshVisual` component, then assign the `Location Mesh` and `Location Material` to their respective input fields.
+
+4. The Scene View should display the Location Mesh with Material applied.
+
+The transform of the Location Mesh Scene Object should remain at its default position (0, 0, 0). Modifying the transform will result in misalignment within the Lens.
+
+### Custom Mapping Visuals for Location Based Experience
+
+> See [Custom Mapping Visuals for Location Based Experience](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/features/connected-custom-location#custom-mapping-visuals-for-location-based-experience) in the upstream docs for diagrams.
+
+To enhance user experience during the mapping process, developers can implement custom mapping visuals.
+
+1. Unpack **Spectacles Sync Kit** package and locate the `ColocationUI` prefab in Asset Browser.
+
+2. Open `ColocationUI` prefab in the Scene Hierarchy. There are options to customize the mapping UI. For example, you can modify the `RelocalizationGuidance` text and animations to provide specific guidance to users during the mapping process.
+
+Modifying the `ColocationUI` prefab directly will not be reflected because the contents are controlled by the scripts. To create a unique experience, please follow next steps.
+
+3. In order to override the current setup, locate `CustomLandmarkGuidance` folder in Asset Browser and modify these scripts to fit your needs. For example, change the text copies in `GuidanceCopy` script will allow you to customize the instructions shown to users during the mapping process.
