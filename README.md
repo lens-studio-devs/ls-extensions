@@ -18,7 +18,7 @@ For more CLAD documentation, see [developers.specs.com/docs/clad](https://develo
 
 ```
 /plugin marketplace add git@github.com:lens-studio-devs/ls-extensions.git
-/plugin install ls-clad@lens-studio
+/plugin install ls-clad@ls-extensions
 ```
 
 You can also do this through the Claude Code terminal UI by opening the plugin flow, adding the marketplace there, and installing the plugin you want without typing the full commands manually.
@@ -28,7 +28,7 @@ You can also do this through the Claude Code terminal UI by opening the plugin f
 ```
 git clone git@github.com:lens-studio-devs/ls-extensions.git
 /plugin marketplace add /absolute/path/to/ls-extensions
-/plugin install ls-clad@lens-studio
+/plugin install ls-clad@ls-extensions
 ```
 
 ### Codex
