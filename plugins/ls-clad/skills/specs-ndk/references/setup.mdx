@@ -1,0 +1,355 @@
+---
+name: specs-ndk-setup
+description: Provisions SpecsNDK under Dev/SpecsNDK via Google Cloud Storage download links, with optional Google Cloud SDK auth when the URL requires authorization. Includes separate macOS and Windows instructions.
+---
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# SpecsNDK setup (macOS + Windows)
+
+## When to use
+
+- User wants **SpecsNDK** downloaded and **extracted under `~/Dev/SpecsNDK`**.
+- User is starting native SpecsNDK + Lens Studio work and lacks the SDK or tools.
+
+## Download URLs
+
+| Platform | URL |
+|----------|-----|
+| **macOS** | `https://storage.googleapis.com/specsndk/specsndk-armv8-2605.16-darwin21-x86_64.tar.xz` |
+| **Windows** | `https://storage.googleapis.com/specsndk/specsndk-armv8-2605.16-mingw32-x86_64.tar.xz` |
+
+## Preconditions
+
+- **macOS** or **Windows** host.
+- Network access to **`https://storage.googleapis.com/specsndk/`** (and to Google APIs only if the bucket requires authorization).
+- **`cmake`** on PATH (agents **detect** in step 2; **stop** and install via **`brew`** / **`winget`** if missing—do not download the NDK first).
+- **Python 3** on PATH (probe + download use **`tools/download_specsndk.py`** — stdlib **`urllib`**, not **`curl`**).
+- **Google Cloud SDK** is required **only** when a probe or download gets **401**, **403**, or another response that indicates authorization is required (see step 3). Interactive **`gcloud auth login`** needs the user in the terminal.
+
+## Agent: when SpecsNDK is missing
+
+**Detect missing NDK:** **`~/Dev/SpecsNDK`** (or **`$HOME\Dev\SpecsNDK`**) does **not** exist, is **empty**, or has **no** expected SpecsNDK toolchain layout (no sysroots / SDK tree). Treat **“directory exists but is empty”** the same as missing — run **`## Instructions`** below (do not scaffold or build until the SDK is present).
+
+Do **not** ask *“How should we get SpecsNDK installed…”* or any **Auto Mode** / **automode** **`AskQuestion`**. Proceed with setup via the Shell tool when the NDK is missing.
+
+**Mandatory order (agents):** follow **`## Instructions`** steps **0 → 1 → 2 → 3** without skipping gates.
+
+1. **Steps 0–1** — **`~/Dev`** parent and **`~/Dev/SpecsNDK`** root.
+2. **Step 2 — CMake:** **`cmake --version`**. If it fails → **stop**. On **macOS**, **`brew install cmake`**; on **Windows**, **`winget install --id Kitware.CMake -e`**. No NDK probe/download until CMake passes.
+3. **Step 3a — Auth probe:** **`download_specsndk.py probe`**. **401** / **403** → **stop** before **3b**; use **Auth gate (stop here)** (`brew install --cask google-cloud-sdk` on macOS if needed, then **`gcloud auth login`**). **200** → **3b**; after auth → **3d**.
+4. **Extract / trust** (steps 4–5) when download succeeds.
+
+1. **Announce each** `brew` / `winget` / `gcloud` command **immediately before** invoking it; ask the user to approve shell prompts as they appear. For HTTP, use **`python3 …/tools/download_specsndk.py`** only (not **`curl`**).
+2. **If a shell command fails** with sandbox, denied, or “not allowed” errors: **do not** claim setup succeeded. Output **User-run fallback** for the user’s platform (or retry after they approve permissions).
+3. **If the user says the SDK is already elsewhere**, skip download; verify layout under their path and pass **`SPECSNDK_ROOT`** into **`build.sh`** / CMake (no separate question flow).
+4. **Do not** fetch the NDK URL with ad-hoc **`curl`**, browser downloads, or one-off scripts—use **`download_specsndk.py`** from this skill.
+
+Commands that typically require approval: **`brew install cmake`**, **`brew install --cask google-cloud-sdk`**, **`python3`** (probe + download via this skill’s script), **`winget install`**, **`gcloud auth login`**, **`tar`** (usually allowed locally).
+
+## Instructions
+
+0. **Ensure a `Dev` parent exists** (conventional parent for `SpecsNDK`):
+
+   macOS (bash/zsh):
+
+   ```bash
+   mkdir -p "$HOME/Dev"
+   ```
+
+   Windows (PowerShell):
+
+   ```powershell
+   New-Item -ItemType Directory -Force "$HOME\Dev" | Out-Null
+   ```
+
+1. **Create the SDK root and enter it**
+
+   macOS (bash/zsh):
+
+   ```bash
+   SPECSNDK_ROOT="$HOME/Dev/SpecsNDK"
+   mkdir -p "$SPECSNDK_ROOT"
+   cd "$SPECSNDK_ROOT"
+   ```
+
+   Windows (PowerShell):
+
+   ```powershell
+   $SPECSNDK_ROOT = "$HOME\Dev\SpecsNDK"
+   New-Item -ItemType Directory -Force $SPECSNDK_ROOT | Out-Null
+   Set-Location $SPECSNDK_ROOT
+   ```
+
+2. **Verify CMake** (required before download; **stop** if missing)
+
+   Check:
+
+   ```bash
+   cmake --version
+   ```
+
+   PowerShell:
+
+   ```powershell
+   cmake --version
+   ```
+
+   - If the command **succeeds**, continue to step 3.
+   - If it **fails**, **stop** setup here. Tell the user CMake is required for SpecsNDK native module builds.
+
+   **macOS — install CMake with Homebrew** (user or agent, after approval):
+
+   ```bash
+   brew install cmake
+   ```
+
+   Re-run **`cmake --version`**; do **not** start step 3 until it passes.
+
+   **Windows — install CMake** if missing:
+
+   ```powershell
+   winget install --id Kitware.CMake -e
+   ```
+
+   Executing agents: never download the NDK archive while **`cmake --version`** fails.
+
+3. **Download the SDK archive** (try direct link first; use Google Cloud auth only if required)
+
+   **Download tool (required):** this skill’s **`tools/download_specsndk.py`** (stdlib **`urllib`**). Agents: resolve the absolute path from the **specs-ndk** plugin (e.g. `…/plugins/ls-clad/skills/specs-ndk/tools/download_specsndk.py`) and export it:
+
+   ```bash
+   export SPECSNDK_DOWNLOAD_PY="/absolute/path/to/download_specsndk.py"
+   ```
+
+   PowerShell:
+
+   ```powershell
+   $env:SPECSNDK_DOWNLOAD_PY = "C:\absolute\path\to\download_specsndk.py"
+   ```
+
+   Set the platform URL and a local archive name (adjust the filename if the server sends a different name via redirect or `Content-Disposition`).
+
+   macOS (bash/zsh):
+
+   ```bash
+   SPECSNDK_ROOT="$HOME/Dev/SpecsNDK"
+   SPECSNDK_URL="https://storage.googleapis.com/specsndk/specsndk-armv8-2605.16-darwin21-x86_64.tar.xz"
+   SPECSNDK_ARCHIVE="$SPECSNDK_ROOT/specsndk-armv8-2605.16-darwin21-x86_64.tar.xz"
+   ```
+
+   Windows (PowerShell):
+
+   ```powershell
+   $SPECSNDK_ROOT = "$HOME\Dev\SpecsNDK"
+   $SPECSNDK_URL = "https://storage.googleapis.com/specsndk/specsndk-armv8-2605.16-mingw32-x86_64.tar.xz"
+   $SPECSNDK_ARCHIVE = "$SPECSNDK_ROOT\specsndk-armv8-2605.16-mingw32-x86_64.tar.xz"
+   ```
+
+   ### 3a. Probe whether the URL allows an unauthenticated download
+
+   macOS / Windows (same **`python3`** command; set **`SPECSNDK_DOWNLOAD_PY`** first):
+
+   ```bash
+   python3 "$SPECSNDK_DOWNLOAD_PY" probe --url "$SPECSNDK_URL"
+   ```
+
+   PowerShell:
+
+   ```powershell
+   python $env:SPECSNDK_DOWNLOAD_PY probe --url $SPECSNDK_URL
+   ```
+
+   The script prints a line like **`HTTP 200`**. Parse that status:
+
+   - **200** (or **302** followed by a successful download in **3b**): treat as **public** → use **3b**.
+   - **401** or **403** (auth gate): **stop** — do **not** run **3b** yet. Tell the user the NDK link requires Google sign-in. Then follow **Auth gate (stop here)** below, then **3c** / **3d**.
+   - Other errors: show the status to the user; retry after network/VPN fixes.
+
+   #### Auth gate (stop here) — probe returned **401** or **403**
+
+   **Do not download** until authentication is ready.
+
+   1. **macOS — install Google Cloud SDK with Homebrew** if **`gcloud`** is not on PATH:
+
+      ```bash
+      brew install --cask google-cloud-sdk
+      ```
+
+      After the cask install, ensure **`gcloud`** is on PATH (source **`google-cloud-sdk/path.bash.inc`** or add the cask bin directory).
+
+   2. **Windows** — if **`gcloud`** is missing: **`winget install --id Google.CloudSDK -e`**.
+
+   3. **User must authenticate** (agent pauses; do not chain with download):
+
+      ```bash
+      gcloud auth login
+      gcloud auth print-access-token
+      ```
+
+      Setup continues only after **`gcloud auth print-access-token`** succeeds.
+
+   4. Then run **3d** (authenticated download). Skip **3b**.
+
+   Executing agents: run the probe before **`brew install --cask google-cloud-sdk`**. Install **`gcloud`** via brew **only** when the probe (or a failed **3b** download) shows **401** / **403**.
+
+   ### 3b. Direct download (no `gcloud`)
+
+   ```bash
+   python3 "$SPECSNDK_DOWNLOAD_PY" download --url "$SPECSNDK_URL" --out "$SPECSNDK_ARCHIVE"
+   ```
+
+   PowerShell:
+
+   ```powershell
+   python $env:SPECSNDK_DOWNLOAD_PY download --url $SPECSNDK_URL --out $SPECSNDK_ARCHIVE
+   ```
+
+   If this fails with **401** or **403**, switch to **3c** and **3d** (do not assume the archive is public).
+
+   ### 3c. Install Google Cloud SDK and authenticate (authorization required)
+
+   macOS (bash/zsh):
+
+   ```bash
+   brew install --cask google-cloud-sdk
+   ```
+
+   Ensure `gcloud` is on PATH after the cask install (source `google-cloud-sdk/path.bash.inc` or add its bin dir to PATH if needed).
+
+   Windows (PowerShell), if not already installed:
+
+   ```powershell
+   winget install --id Google.CloudSDK -e
+   ```
+
+   Open a new shell if needed, then confirm `gcloud --version`.
+
+   **Stop until auth completes.** Run login and wait for the user to finish in the browser:
+
+   ```bash
+   gcloud auth login
+   ```
+
+   **Verify** credentials (must succeed before download):
+
+   ```bash
+   gcloud auth print-access-token >/dev/null
+   ```
+
+   Executing agents: do not chain download with `gcloud auth login`. Pause until login completes and the token check passes.
+
+   ### 3d. Authenticated download (same `SPECSNDK_URL`)
+
+   macOS (bash/zsh):
+
+   ```bash
+   export SPECSNDK_BEARER_TOKEN="$(gcloud auth print-access-token)"
+   python3 "$SPECSNDK_DOWNLOAD_PY" download --url "$SPECSNDK_URL" --out "$SPECSNDK_ARCHIVE"
+   ```
+
+   Windows (PowerShell):
+
+   ```powershell
+   $env:SPECSNDK_BEARER_TOKEN = gcloud auth print-access-token
+   python $env:SPECSNDK_DOWNLOAD_PY download --url $SPECSNDK_URL --out $SPECSNDK_ARCHIVE
+   ```
+
+   Alternatively pass **`--bearer`** instead of **`SPECSNDK_BEARER_TOKEN`**.
+
+   If the URL redirects to Google Cloud Storage, **`urllib`** follows redirects; the script sends **Authorization** on the initial request. If download still fails with **403**, re-run **3c** and confirm bucket access for the signed-in account.
+
+4. **Extract the archive into the SDK root**
+
+   macOS (bash/zsh):
+
+   ```bash
+   tar -xJvf "$SPECSNDK_ARCHIVE" -C "$SPECSNDK_ROOT"
+   ```
+
+   Windows (PowerShell):
+
+   ```powershell
+   tar -xJvf $SPECSNDK_ARCHIVE -C $SPECSNDK_ROOT
+   ```
+
+   If extraction fails (wrong compression), inspect the file (`file` on macOS) and use the matching `tar` flags (e.g. `-xzf` for `.tar.gz`).
+
+5. **Handle platform-specific trust flags on extracted files** (recommended)
+
+   macOS:
+
+   Downloaded archives often leave `com.apple.quarantine` on files under the SDK. Without clearing it, macOS may block or warn on sysroot binaries.
+
+   ```bash
+   xattr -dr com.apple.quarantine "$HOME/Dev/SpecsNDK"
+   ```
+
+   Only run this for a SpecsNDK tree the user intentionally installed and trusts. Do not suggest disabling Gatekeeper globally (`spctl --master-disable`).
+
+   Windows:
+
+   If files are marked as downloaded and blocked:
+
+   ```powershell
+   Get-ChildItem "$HOME\Dev\SpecsNDK" -Recurse -File | Unblock-File
+   ```
+
+   Use this only for the trusted SDK directory the user intentionally downloaded.
+
+## User-run fallback (macOS)
+
+If the agent cannot run **`brew`** / **`python3`**, the user runs this in **Terminal.app** (set **`SPECSNDK_DOWNLOAD_PY`** to **`download_specsndk.py`** from this skill; adjust auth per probe in step 3):
+
+```bash
+cmake --version || brew install cmake
+mkdir -p "$HOME/Dev/SpecsNDK"
+cd "$HOME/Dev/SpecsNDK"
+export SPECSNDK_DOWNLOAD_PY="/absolute/path/to/download_specsndk.py"
+SPECSNDK_URL="https://storage.googleapis.com/specsndk/specsndk-armv8-2605.16-darwin21-x86_64.tar.xz"
+SPECSNDK_ARCHIVE="$HOME/Dev/SpecsNDK/specsndk-armv8-2605.16-darwin21-x86_64.tar.xz"
+python3 "$SPECSNDK_DOWNLOAD_PY" probe --url "$SPECSNDK_URL"
+# If probe prints HTTP 401 or HTTP 403 — stop; then:
+# brew install --cask google-cloud-sdk
+# gcloud auth login && gcloud auth print-access-token
+python3 "$SPECSNDK_DOWNLOAD_PY" download --url "$SPECSNDK_URL" --out "$SPECSNDK_ARCHIVE"
+# export SPECSNDK_BEARER_TOKEN="$(gcloud auth print-access-token)"
+# python3 "$SPECSNDK_DOWNLOAD_PY" download --url "$SPECSNDK_URL" --out "$SPECSNDK_ARCHIVE"
+tar -xJvf "$SPECSNDK_ARCHIVE" -C "$HOME/Dev/SpecsNDK"
+xattr -dr com.apple.quarantine "$HOME/Dev/SpecsNDK"
+```
+
+## User-run fallback (Windows)
+
+Run in **PowerShell** (adjust auth per step 3):
+
+```powershell
+cmake --version
+if (-not $?) { winget install --id Kitware.CMake -e }
+New-Item -ItemType Directory -Force "$HOME\Dev\SpecsNDK" | Out-Null
+Set-Location "$HOME\Dev\SpecsNDK"
+$env:SPECSNDK_DOWNLOAD_PY = "C:\absolute\path\to\download_specsndk.py"
+$SPECSNDK_URL = "https://storage.googleapis.com/specsndk/specsndk-armv8-2605.16-mingw32-x86_64.tar.xz"
+$SPECSNDK_ARCHIVE = "$HOME\Dev\SpecsNDK\specsndk-armv8-2605.16-mingw32-x86_64.tar.xz"
+python $env:SPECSNDK_DOWNLOAD_PY probe --url $SPECSNDK_URL
+# If HTTP 401/403: winget install --id Google.CloudSDK -e; gcloud auth login
+python $env:SPECSNDK_DOWNLOAD_PY download --url $SPECSNDK_URL --out $SPECSNDK_ARCHIVE
+tar -xJvf $SPECSNDK_ARCHIVE -C $HOME\Dev\SpecsNDK
+Get-ChildItem "$HOME\Dev\SpecsNDK" -Recurse -File | Unblock-File
+```
+
+## Response format
+
+- Summarize what was created: **`~/Dev/SpecsNDK`** (macOS) or **`$HOME\Dev\SpecsNDK`** (Windows), including archive + extracted SDK contents.
+- State whether setup ran via **agent shell** (with user approvals) or **user-run fallback**.
+- State which download path was used: **direct** (unauthenticated GCS download) vs **authenticated** (after `gcloud` setup).
+- Note CMake / auth gate stops (brew **`cmake`** or **`google-cloud-sdk`**, probe **401/403**, `gcloud auth login`, PATH for `gcloud`, trust/unblock).
+- Remind that the **specs-ndk** skill expects SpecsNDK under **`Dev/SpecsNDK`** before scaffolding or building.
+
+## Notes
+
+- If macOS binaries under the SDK `sysroots/.../usr/bin` still show quarantine (`xattr -l <path>`), run `xattr -dr com.apple.quarantine` on the relevant SDK directory (often a versioned folder inside `~/Dev/SpecsNDK`).
+- If a direct download fails but the probe returned **200**, retry with **3d** in case the server requires a Bearer token only on GET (not HEAD).
+- Align **`SPECSNDK_ARCHIVE`** with the actual filename if the CDN returns a versioned name; extraction only requires a consistent path.

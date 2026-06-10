@@ -1,0 +1,105 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# Session Controller
+
+> Upstream docs for figures and rendered code examples: [Session Controller](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/features/session-controller).
+
+The SessionController is a script that manages the state of a shared session and provides APIs for accessing session information, such as users in the session and server time. It acts as a central interface that all Spectacles Sync Kit scripts can talk to and get the information they need. The SessionControllerComponent can be found on the **SessionController [CONFIGURE_ME]** scene object in the Scene Hierarchy.
+
+### Referencing SessionController
+
+The SessionController script can be referenced from other scripts as follows:
+
+```ts
+import {SessionController} from "SpectaclesSyncKit.lspkg/Core/SessionController" // path may differ
+
+onAwake() {
+   const sessionController: SessionController = SessionController.getInstance()
+}
+```
+
+### Session Setup
+
+The SessionController handles a number of steps when a user starts or joins a shared session. It is important that the SessionController has completed this setup before other scripts attempt to use SessionController APIs. To check that the SessionController is ready to use, call `SessionController.notifyOnReady()`. The method accepts a callback function that executes once session setup is complete. If setup is already finished, the callback function runs immediately.
+
+```ts
+const sessionController: SessionController = SessionController.getInstance();
+
+sessionController.notifyOnReady(() => {
+  // SessionController is ready to use
+});
+```
+
+You can also check if setup has completed by checking `SessionController.getIsReady()`, which returns a boolean.
+
+```ts
+if (SessionController.getInstance().getIsReady()) {
+  // Session is ready
+}
+```
+
+### Logging
+
+> See [Logging](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/features/session-controller#logging) in the upstream docs for diagrams.
+
+The SessionController scene object has a script attached to it called SyncKitLogLevelConfiguration. From the Inspector panel, select the **Log Level Filter** to control what type of logs are printed from Spectacles Sync Kit in the Logger. The available options are: Error, Warning, Info, Debug, or Verbose.
+
+### APIs
+
+The SessionController script offers the following APIs for accessing information about the current shared session.
+
+**Important:** Wait until `SessionController.notifyOnReady()` has been called or `SessionController.getIsReady()` returns true before using these APIs.
+
+**`SessionController.getIsReady(): boolean`**\
+Returns true if the SessionController has finished joining the session, and the user has successfully mapped or relocalized.
+
+**`SessionController.getLocalConnectionId(): string`**\
+Returns the [connection ID](./user-information#connectionid) of the local user.
+
+**`SessionController.getLocalUserId(): string`**\
+Returns the [user ID](./user-information#userid) of the local user.
+
+**`SessionController.getLocalUserInfo(): ConnectedLensModule.UserInfo`**\
+Returns the [UserInfo](./user-information) object of the local user.
+
+**`SessionController.getLocalUserName(): string`**\
+Returns the [display name](./user-information#displayname) of the local user.
+
+:::note Empty in Lens Studio Preview without a Snapchatter identity
+`_localDisplayName` is cached once at `_onConnected` from `connectionInfo.localUserInfo.displayName` and never refreshed. In Lens Studio mock multiplayer, panes without a configured Snapchatter identity return `""` from `getLocalUserName()`. For UI labels that need a sensible value even in this case, cascade through the available identity sources:
+
+```ts
+const local = SessionController.getInstance().getLocalUserInfo()
+const name =
+  local?.displayName ||
+  local?.userId ||
+  SessionController.getInstance().getLocalUserName() ||
+  "Unknown User"
+```
+
+This pattern is used by `NameTagSpawner.ts` to bake the best available name into the prefab's `customDataStore` at spawn time.
+:::
+
+**`SessionController.getSession(): MultiplayerSession`**\
+Returns the current MultiplayerSession object. Always use this instead of storing a reference to the session, since it is possible for the session to change.
+
+**`SessionController.getUsers(): ConnectedLensModule.UserInfo[]`**\
+Returns a list of users currently connected to the session, represented as [UserInfo](./user-information) objects.
+
+**`SessionController.getUserByConnectionId(connectionId: string): ConnectedLensModule.UserInfo`**\
+Returns the [UserInfo](./user-information) of a user currently connected to the session with the matching connection ID, or null if none exists.
+
+**`SessionController.getUsersByUserId(userId: string): ConnectedLensModule.UserInfo[]`**\
+Returns a list of users currently connected to the session who have a matching user ID.
+
+**`SessionController.getServerTimeInSeconds(): number?`**\
+Returns the current server timestamp in seconds, or null if not available.
+
+**`SessionController.isSingleplayer(): boolean`**\
+Returns true if the current session is singleplayer, and false if it is multiplayer.
+
+**`SessionController.notifyOnReady(onReady)`**\
+Calls the onReady callback as soon as the SessionController has finished all setup, and the user has successfully mapped or relocalized. If setup is already finished, the callback is called immediately.

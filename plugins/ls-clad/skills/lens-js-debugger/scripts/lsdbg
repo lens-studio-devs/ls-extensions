@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Copyright 2026 Specs Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# Wrapper that resolves the Python lsdbg package regardless of where the
+# plugin is installed (Claude Code marketplace dir, Cursor local plugins
+# dir, repo clone, etc.) and re-execs `python -m lsdbg` with the right
+# PYTHONPATH.
+#
+# Set PYTHON=/path/to/python3 to use a specific interpreter. Otherwise
+# the first `python3` on PATH is used.
+set -euo pipefail
+
+# Resolve symlinks so `lsdbg install-link` (which drops $HOME/.local/bin/lsdbg)
+# still finds tools/lsdbg. macOS `readlink` has no -f, so walk the chain by hand.
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+while [ -L "$SCRIPT_PATH" ]; do
+  LINK_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+  SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+  [[ "$SCRIPT_PATH" != /* ]] && SCRIPT_PATH="$LINK_DIR/$SCRIPT_PATH"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+export PYTHONPATH="$SKILL_DIR/tools${PYTHONPATH:+:$PYTHONPATH}"
+
+exec "${PYTHON:-python3}" -m lsdbg "$@"

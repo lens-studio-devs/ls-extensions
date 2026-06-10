@@ -1,0 +1,43 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# Sync Transform
+
+> Upstream docs for figures and diagrams: [Sync Transform](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/features/sync-transform).
+
+The SyncTransform component can be used to automatically sync a scene object’s position, rotation, and / or scale, depending on how it is configured in the Inspector panel. Attaching a SyncTransform component to a scene object turns that object into a [SyncEntity](./sync-entity). The SyncTransform component uses [storage properties](./storage-properties) to synchronize transform data across the network.
+
+### Setup
+
+To begin setup, add the SyncTransform component to the scene object to be synced. Next, configure the following inputs in the Inspector panel:
+
+#### Network ID Type
+
+The Network ID uniquely identifies a SyncEntity. There are two types of Network ID that can be used – Object ID, or Custom. Object ID automatically generates a Network ID for the SyncEntity. This should be used in most cases. Custom lets you enter your own Network ID in an additional input field. An example of when you may need to use a Custom Network ID is if you need to use multiple SyncTransforms within the same scene object hierarchy.
+
+#### Sync Settings
+
+Use the Sync Settings drop downs to set how the position, rotation, and scale are synced. The following options are available:
+
+- **None:** Data is not synced.
+- **Location:** Data is synced relative to the co-located coordinate space.
+- **Local:** Data is synced relative to the scene object’s parent’s coordinate space.
+- **World:** Data is synced relative to Spectacles’ world coordinate system. This is generally not recommended for a colocated experience.
+
+#### Sends Per Second
+
+The sends per second parameter limits the number of times per second that transform data is sent across the network. The default value for the input is 10 messages per second. To set a limit, the input value must be a number greater than zero. A value of zero stops messages from sending and a value less than zero removes the limit on sends per second.
+
+Setting the sends per second value is useful for managing network traffic to ensure the Lens stays within [rate limits](./payload-and-rate-limits) and performs under different network conditions. This is especially relevant for scene object transforms that change continuously, like player avatars.
+
+#### Smoothing
+
+When **Use Smoothing** is enabled, synced values are interpolated by receiving clients to produce fluid changes in position, rotation, or scale. Without smoothing enabled, transform changes may look choppy.
+
+The **Interpolation Target** controls the time offset that is used for smoothing. For example, the default value of -0.25 means that the Lens is trying to display the object as it was 0.25 seconds in the past. The further back in time the target is set to, the more likely the component has values to smooth with, and the more lag a receiving client will experience relative to the sender.
+
+When using SyncTransform smoothing with an unowned object, you may encounter a warning that **out of order timestamps** were received. This typically means that the object’s transform was modified on multiple devices at the same time, and now the client isn't sure which value is the true value. The same problem can occur when smoothing is turned off, but in that case, we don't detect or warn about the issue. The recommended way to resolve the warning is to handle [ownership](./sync-entity#ownership) of the object, so that only one device can update transform values at a time.
+
+SyncTransform does not support changing syncing parameters (e.g., sends per second, smoothing) or disabling the component via script. Once SyncTransform is initialized, it will continue running for the duration of the Lens based on its configuration in the Inspector. If you want to control when transform data is synced, consider setting up your own [storage properties](./storage-properties) and using custom logic to update their values.

@@ -1,0 +1,90 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# Sync SIK Components
+
+> Upstream docs for rendered code examples: [Sync SIK Components](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/features/syncing-sik-components).
+
+While building Connected Lenses, developers may need to sync certain interactions across multiple connections. For example, if the host of a session interacts with a shared ScrollView that everyone can see, all users should see the scroll happen at the same time. To account for this, SpectaclesInteractionKit offers a mix of APIs to allow developers to easily sync interactions within their Lens.
+
+To enable a synced version of SpectaclesInteractionKit, developers must first enable the **[OPTIONAL] Connected Lens** **SceneObject** in the **SpectaclesInteractionKit** prefab hierarchy. This will enable **SpectaclesInteractionKit**'s sync logic to automatically search for the presence of **SpectaclesSyncKit** within the project hierarchy to then sync various interactions.
+
+---
+
+## SyncEntity in SIK Components
+
+The more complex **SpectaclesInteractionKits** components of `Slider`, `ToggleButton`, `ScrollView`, `InteractableManipulation`, and `ContainerFrame` have a sense of state (e.g. scroll position, slider value, container placement). To account for this, these components use **SpectaclesSyncKit**'s `SyncEntity` component directly to manage this state across multiple connections.
+
+By setting **`isSynced = true`** in the **Inspector Panel** of these components, SpectaclesInteractionKit automatically handles:
+
+- **Join State** — Users joining mid-session will sync to the latest component state.
+- **Live updates** — State changes propagate in real-time across all connected users, according to the currently interacting user.
+
+💡 **Tip**: Use `isSynced` whenever a component's state should persist across users and sessions, such as a shared scrolling menu.
+
+---
+
+## SyncInteractionManager and onSync Events
+
+Simpler components without persistent state (e.g. `InteractableAudioFeedback`) use synced interaction events instead of `SyncEntity`. The `SyncInteractionManager` component detects local interaction events (e.g. `onHoverEnter`) and propagates that event to other connections to invoke the synced equivalent (`onSyncHoverEnter` in this case) for the connected users' instance.
+
+### How It Works
+
+- `SyncInteractionManager` caches local events from `InteractionManager` each frame and writes them to a shared datastore.
+- The `InteractionManager` of any other connected user reads from the datastore and invokes the relevant sync event for the same `Interactable`.
+- Simple scripts can listen for `onSync` events to invoke logic whenever a connected user interacts with a shared `Interactable`.
+
+### Example
+
+- **User A** hovers Interactable 1 with left hand → `onHoverStart`.
+- **User B** receives → `onSyncHoverStart` via a simulated `SyncInteractor`.
+
+### Supported Events
+
+- Hover: `onHoverStart`, `onHoverEnd` → `onSyncHoverStart`, `onSyncHoverEnd`
+- Trigger: `onTriggerStart`, `onTriggerEnd`, `onTriggerEndOutside` , `onTriggerCancel` → `onSyncTriggerStart`, `onSyncTriggerEnd`, `onSyncTriggerEndOutside` , `onSyncTriggerCancel`
+- Drag: `onDragStart`, `onDragUpdate`, `onDragEnd` → `onSyncDragStart`, `onSyncDragUpdate`, `onSyncDragEnd`
+
+All SIK helper components automatically subscribe to `onSync` events, so developers can immediately use multiplayer-friendly feedback components! For example, the `InteractableAudioScript` plays audio whenever the local user or any connected user starts a trigger with the associated `Interactable`:
+
+```
+    this.interactable.onTriggerStart.add(() => {
+      try {
+        if (this.playAudioOnTriggerStart && this._triggerStartAudioComponent) {
+          this._triggerStartAudioComponent.play(1)
+        }
+      } catch (e) {
+        print("Error playing trigger start audio: " + e)
+      }
+    })
+
+    this.interactable.onSyncTriggerStart.add(() => {
+      try {
+        if (this.playAudioOnTriggerStart && this._triggerStartAudioComponent) {
+          this._triggerStartAudioComponent.play(1)
+        }
+      } catch (e) {
+        print("Error playing trigger start audio: " + e)
+      }
+    })
+```
+
+---
+
+## Developer Responsibilities and Limitations
+
+While `isSynced` and `onSync` events cover many standard cases, developers are still responsible for syncing **lens-specific logic**. Developers can either sync complex states of their Lens by using `SpectaclesSyncKit`'s `SyncEntity` or subscribing to `Interactable`'s `onSync` events for their own Lens logic.
+
+For example, a developer can create shared button that launches a rocket for all connected users with the following code:
+
+```
+    const interactable = this.sceneObject.getComponent(Interactable.getTypeName())
+    interactable.onTriggerEnd.add(this.launchRocket)
+    interactable.onSyncTriggerEnd.add(this.launchRocket)
+```
+
+⚠ **Limitation**: SIK cannot automatically sync custom business logic or third-party scripts — developers must manage these explicitly.
+
+Developers will also need to manage their Scene Hierarchy with similar limitations as `SpectaclesSyncKit`'s `SyncEntity`, where objects are identified by their position in the Scene Hierarchy. If a developer wants to subscribe to an `Interactable` for sync events, that `Interactable` must have the same parent and index in the Scene Hierarchy in every single connected users' Lens.

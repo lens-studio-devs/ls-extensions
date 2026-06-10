@@ -1,0 +1,285 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# Leaderboard
+
+The **Global Leaderboard** example comes from the Snap Cloud Examples package. It builds a global leaderboard backed by two Supabase RPC (remote procedure call) functions. The backend stores scores server-side and keeps only the best score per user.
+
+Prerequisites
+
+Set up your project as per the [Getting Started](https://developers.snap.com/spectacles/about-spectacles-features/snap-cloud/getting-started) guide before proceeding. For full reference documentation, see the [Snap Cloud documentation site](https://cloud.snap.com/docs).
+
+## What You Get
+
+The Global Leaderboard system provides:
+
+- **One row per user**: Each user keeps only their best score.
+- **Authenticated submission**: Score submission requires Snapchat sign-in.
+- **Public retrieval**: Viewing the leaderboard doesn't require login.
+- **Flexible sorting**: Support for highest-score-first or lowest-score-first; for example, golf or time trials.
+- **UI integration**: Works with Spectacles UI Kit's ScrollWindow and row prefabs.
+
+## Supabase Setup: RPCs and Table
+
+The backend uses two PostgreSQL RPC functions:
+
+| RPC              | Auth Required | Purpose                                                                          |
+| ---------------- | ------------- | -------------------------------------------------------------------------------- |
+| `submit_score`   | Yes           | Inserts or updates a user's best score. Keeps only the personal best per user.   |
+| `get_top_scores` | No            | Returns the top N scores with display name. Used for public leaderboard display. |
+
+The table stores `user_id`, `displayname`, `score`, and `created_at`. Row Level Security (RLS) policies restrict writes to the authenticated user while allowing anyone to read.
+
+## Find the Example
+
+The **Snap Cloud Examples** package contains the Global Leaderboard example. Open the Asset Library in Lens Studio and install **SnapCloudExamples**, or open it from the Spectacles Sample Projects.
+
+The package includes:
+
+- **Complete SQL**: Table definition and RPC functions.
+- **Setup guide**: Step-by-step instructions.
+- **Lens scripts**: `SupabaseLeaderboardService`, `GlobalLeaderboard`, `LeaderboardRowInstantiator`, `LeaderboardRowItem`, and an example game.
+- **Prefabs**: `ScrollViewListItem` and `GlobalLeaderboard` ready for ScrollWindow.
+
+## Backend setup
+
+Run the following SQL in your Snap Cloud dashboard under **SQL Editor**:
+
+```sql
+-- Leaderboard table
+CREATE TABLE leaderboard (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid REFERENCES auth.users(id) UNIQUE,
+  displayname text NOT NULL,
+  score numeric NOT NULL,
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE leaderboard ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can insert their own score"
+  ON leaderboard FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update their own score"
+  ON leaderboard FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Anyone can read the leaderboard"
+  ON leaderboard FOR SELECT USING (true);
+
+-- submit_score: upserts the player's personal best
+CREATE OR REPLACE FUNCTION submit_score(
+  p_score numeric,
+  p_displayname text,
+  p_sort_mode text DEFAULT 'desc'
+)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  existing_score numeric;
+BEGIN
+  SELECT score INTO existing_score FROM leaderboard WHERE user_id = auth.uid();
+
+  IF existing_score IS NULL THEN
+    INSERT INTO leaderboard (user_id, displayname, score)
+    VALUES (auth.uid(), p_displayname, p_score);
+  ELSIF (p_sort_mode = 'desc' AND p_score > existing_score)
+     OR (p_sort_mode = 'asc'  AND p_score < existing_score) THEN
+    UPDATE leaderboard SET score = p_score, displayname = p_displayname
+    WHERE user_id = auth.uid();
+  END IF;
+END;
+$$;
+
+-- get_top_scores: returns top N rows
+CREATE OR REPLACE FUNCTION get_top_scores(
+  p_limit integer DEFAULT 10,
+  p_sort_mode text DEFAULT 'desc'
+)
+RETURNS TABLE(displayname text, score numeric) LANGUAGE plpgsql AS $$
+BEGIN
+  IF p_sort_mode = 'asc' THEN
+    RETURN QUERY SELECT l.displayname, l.score FROM leaderboard l ORDER BY l.score ASC LIMIT p_limit;
+  ELSE
+    RETURN QUERY SELECT l.displayname, l.score FROM leaderboard l ORDER BY l.score DESC LIMIT p_limit;
+  END IF;
+END;
+$$;
+```
+
+## Quick Integration
+
+Once your Supabase project has the table and RPCs:
+
+1. Drag the Snap Cloud Examples package into your scene.
+2. Disable or delete all other examples and leave only the Global Leaderboard example.
+3. From the Supabase panel, import your project's credentials.
+4. Assign the credentials to the `SupabaseLeaderboardService` component on the Global Leaderboard Scene object.
+
+## Lens Studio code
+
+**SupabaseLeaderboardService**; authentication and RPC calls
+
+```ts
+import {
+  createClient,
+  type SupabaseClient,
+} from 'SupabaseClient.lspkg/supabase-snapcloud';
+
+export type TopScoreRow = { displayname: string; score: number };
+
+@component
+export class SupabaseLeaderboardService extends BaseScriptComponent {
+  @input supabaseProject: SupabaseProject;
+
+  private client: SupabaseClient | null = null;
+  private initialized = false;
+  private authed = false;
+
+  /** Lazy-initialize the Supabase client */
+  private init(): void {
+    if (this.initialized) return;
+    globalThis.supabaseModule = require('LensStudio:SupabaseModule');
+    this.client = createClient(
+      this.supabaseProject.url,
+      this.supabaseProject.publicToken
+    );
+    this.initialized = true;
+  }
+
+  /** Ensure a valid session before calling RPCs that require auth */
+  private async ensureAuthed(): Promise<void> {
+    this.init();
+    if (!this.client) throw new Error('Client not initialized');
+    if (this.authed) return;
+
+    // Reuse existing session if available
+    const { data: sessionData } = await this.client.auth.getSession();
+    if (sessionData?.session) {
+      this.authed = true;
+      return;
+    }
+
+    // Sign in with Snap ID token
+    const { data, error } = await this.client.auth.signInWithIdToken({
+      provider: 'snapchat',
+      token: '',
+    });
+    if (error) throw new Error('Auth failed: ' + error.message);
+    if (!data?.session) throw new Error('Auth did not return a session');
+    this.authed = true;
+  }
+
+  /** Submit the authenticated user's score (keeps personal best only) */
+  async submitScore(
+    score: number,
+    displayname: string,
+    sortMode: string = 'desc'
+  ): Promise<void> {
+    await this.ensureAuthed();
+    const { error } = await this.client!.rpc('submit_score', {
+      p_score: score,
+      p_displayname: displayname,
+      p_sort_mode: sortMode,
+    });
+    if (error) throw new Error('submit_score failed: ' + error.message);
+  }
+
+  /** Fetch the top N scores—no auth required */
+  async getTopScores(
+    limit: number,
+    sortMode: string = 'desc'
+  ): Promise<TopScoreRow[]> {
+    this.init();
+    if (!this.client) throw new Error('Client not initialized');
+    const { data, error } = await this.client.rpc('get_top_scores', {
+      p_limit: limit,
+      p_sort_mode: sortMode,
+    });
+    if (error) throw new Error('get_top_scores failed: ' + error.message);
+    return (data || []) as TopScoreRow[];
+  }
+
+  onDestroy() {
+    try {
+      this.client?.removeAllChannels?.();
+    } catch (_) {}
+  }
+}
+```
+
+**GlobalLeaderboard**; game controller integration
+
+```ts
+import {
+  SupabaseLeaderboardService,
+  type TopScoreRow,
+} from './SupabaseLeaderboardService';
+
+export type LeaderboardEntryUI = {
+  rank: number;
+  displayname: string;
+  score: number;
+};
+
+@component
+export class GlobalLeaderboard extends BaseScriptComponent {
+  @input supabaseService: SupabaseLeaderboardService;
+
+  @input ascending: boolean = false; // false = highest score first
+  @input itemsCount: number = 10;
+
+  onAwake() {
+    this.createEvent('OnStartEvent').bind(() => {
+      this.refresh().catch((e) => print('Leaderboard init error: ' + e));
+    });
+  }
+
+  /** Call this from your game when a round ends */
+  async submitScore(score: number, displayName: string): Promise<void> {
+    if (!Number.isFinite(score)) throw new Error('Invalid score: ' + score);
+    const name = String(displayName).trim();
+    if (!name) throw new Error('Display name is required');
+
+    await this.supabaseService.submitScore(
+      score,
+      name,
+      this.ascending ? 'asc' : 'desc'
+    );
+    await this.refresh();
+  }
+
+  /** Refresh leaderboard display—call any time */
+  async refresh(): Promise<void> {
+    const rows = await this.supabaseService.getTopScores(
+      this.itemsCount,
+      this.ascending ? 'asc' : 'desc'
+    );
+
+    const entries: LeaderboardEntryUI[] = rows.map(
+      (row: TopScoreRow, i: number) => ({
+        rank: i + 1,
+        displayname: row.displayname || '---',
+        score: Number(row.score || 0),
+      })
+    );
+
+    // Pass entries to your UI—for example, instantiate row prefabs
+    entries.forEach((entry) => {
+      print(`#${entry.rank}  ${entry.displayname}  ${entry.score}`);
+      // rowInstantiator.render(entries);  // wire up your UI component here
+    });
+  }
+}
+```
+
+## Tips
+
+Lazy authentication
+`SupabaseLeaderboardService` initializes the client and authenticates lazily—only when `submitScore` or `getTopScores` is first called. `getTopScores` doesn't require auth; public read policy, so the leaderboard can display before the user has completed sign-in.
+
+`SECURITY DEFINER` for RPCs
+The `submit_score` function runs with the privileges of the function owner, not the calling user. This lets the function safely upsert into the leaderboard table without exposing raw UPDATE permissions to users, while still using `auth.uid()` to scope writes to the current user.
+
+Sort mode
+Pass `'asc'` for time-trial or puzzle games where lower scores win; for example, fastest completion time. Pass `'desc'` for classic arcade games where higher scores win. The controller forwards the sort mode to both RPCs so the comparison logic in `submit_score` stays correct.
+
+Wire up a row prefab
+In the full example package, `LeaderboardRowInstantiator` creates a prefab instance for each entry and `LeaderboardRowItem` populates rank, name, and score text fields. Adapt these to your own UI by calling `rowInstantiator.render(entries)` after `refresh()` completes.

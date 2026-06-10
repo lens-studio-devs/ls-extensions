@@ -1,0 +1,735 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# Basic Setup
+
+These five examples cover the foundational Snap Cloud services. They're a good starting point before building the more advanced Media and Leaderboard experiences.
+
+---
+
+## Authentication — Sign in with a Snapchat identity token
+
+### What it does
+
+Initializes the Supabase client and authenticates the current Snapchat user using their ID token. After a successful sign-in you can access the user ID and session, which are required by every other Snap Cloud service.
+
+### Setup
+
+1. Open the **Example1-AuthAndTables** scene.
+2. Select the `BasicAuth` script component.
+3. Drag your Supabase Project asset into the `Supabase Project` field.
+
+### Code
+
+```ts
+import {
+  createClient,
+  SupabaseClient,
+} from 'SupabaseClient.lspkg/supabase-snapcloud';
+
+@component
+export class BasicAuth extends BaseScriptComponent {
+  @input
+  supabaseProject: SupabaseProject;
+
+  private client: SupabaseClient;
+  private uid: string;
+
+  onAwake() {
+    this.createEvent('OnStartEvent').bind(() => this.onStart());
+  }
+
+  onStart() {
+    this.initSupabase();
+  }
+
+  async initSupabase() {
+    const options = {
+      realtime: {
+        // Known alpha limitation — keep at 2500
+        heartbeatIntervalMs: 2500,
+      },
+    };
+
+    this.client = createClient(
+      this.supabaseProject.url,
+      this.supabaseProject.publicToken,
+      options
+    );
+
+    if (this.client) {
+      await this.signInUser();
+    }
+  }
+
+  async signInUser() {
+    const { data, error } = await this.client.auth.signInWithIdToken({
+      provider: 'snapchat',
+      token: '',
+    });
+
+    if (error) {
+      print('Sign in failed: ' + JSON.stringify(error));
+      return;
+    }
+
+    const { user, session } = data;
+    this.uid = JSON.stringify(user.id).replace(/^"(.*)"$/, '$1');
+
+    print('Signed in — user ID: ' + this.uid);
+    print(
+      'Session expires: ' + new Date(session.expires_at * 1000).toISOString()
+    );
+  }
+
+  onDestroy() {
+    if (this.client) this.client.removeAllChannels();
+  }
+}
+```
+
+### Tips
+
+Session caching
+On device startup the OIDC token may not be immediately available. If `signInWithIdToken` returns an `AuthRetryableFetchError`, wait ~1 second and retry. The Media examples in this package include built-in retry logic you can reuse.
+
+Reuse authentication across scripts
+Rather than authenticating independently in every script, consider using a shared `SnapCloudRequirements` component (included in the package). It initializes auth once and exposes the client to all other scripts via a reference.
+
+---
+
+## Tables — Read and write structured data across multiple tables
+
+### What it does
+
+Demonstrates all four database operations (SELECT, INSERT, UPDATE, DELETE) on a primary table, and also shows how to model two common patterns: an event log (`user_interactions`) and per-user configuration (`user_preferences`).
+
+### Setup
+
+In your Snap Cloud dashboard, create three tables:
+
+| Table               | Required columns                                                                         |
+| ------------------- | ---------------------------------------------------------------------------------------- |
+| `test_table`        | `id` (uuid, PK), `user_id` (uuid, default `auth.uid()`), `message` (text)                |
+| `user_interactions` | `id` (uuid, PK), `action` (text), `data` (text), `timestamp` (text), `session_id` (text) |
+| `user_preferences`  | `id` (uuid, PK), `user_id` (text, unique), `preferences` (text), `updated_at` (text)     |
+
+Enable RLS on each table and apply **"Enable insert/select for users based on user_id"** policies.
+
+### Code
+
+```ts
+import {
+  createClient,
+  SupabaseClient,
+} from 'SupabaseClient.lspkg/supabase-snapcloud';
+
+@component
+export class TableConnector extends BaseScriptComponent {
+  @input
+  supabaseProject: SupabaseProject;
+
+  @input
+  tableName: string = 'test_table';
+
+  private client: SupabaseClient;
+  private uid: string;
+
+  onAwake() {
+    this.createEvent('OnStartEvent').bind(() => this.onStart());
+  }
+
+  onStart() {
+    this.initSupabase();
+  }
+
+  async initSupabase() {
+    const options = { realtime: { heartbeatIntervalMs: 2500 } };
+    this.client = createClient(
+      this.supabaseProject.url,
+      this.supabaseProject.publicToken,
+      options
+    );
+    if (this.client) {
+      await this.signInUser();
+      if (this.uid) await this.runExamples();
+    }
+  }
+
+  async signInUser() {
+    const { data, error } = await this.client.auth.signInWithIdToken({
+      provider: 'snapchat',
+      token: '',
+    });
+    if (!error) {
+      this.uid = JSON.stringify(data.user.id).replace(/^"(.*)"$/, '$1');
+    }
+  }
+
+  async runExamples() {
+    // --- INSERT ---
+    const { data: inserted, error: insertErr } = await this.client
+      .from(this.tableName)
+      .insert({
+        user_id: this.uid,
+        message: 'Hello from Spectacles ' + Date.now(),
+      })
+      .select();
+    if (insertErr) {
+      print('INSERT error: ' + insertErr.message);
+      return;
+    }
+    print('INSERT OK — id: ' + inserted[0].id);
+
+    // --- SELECT ---
+    const { data: rows } = await this.client
+      .from(this.tableName)
+      .select('*')
+      .eq('user_id', this.uid)
+      .limit(5);
+    print('SELECT returned ' + rows.length + ' rows');
+
+    // --- UPDATE ---
+    const { data: updated } = await this.client
+      .from(this.tableName)
+      .update({ message: 'Updated ' + Date.now() })
+      .eq('id', inserted[0].id)
+      .select();
+    print('UPDATE OK — new message: ' + updated[0].message);
+
+    // --- DELETE ---
+    await this.client.from(this.tableName).delete().eq('id', inserted[0].id);
+    print('DELETE OK');
+
+    // --- Log interaction event ---
+    await this.logInteraction('session_start', { source: 'lens' });
+
+    // --- Save / load user preferences ---
+    await this.savePreferences({ volume: 0.8, colorMode: 'vivid' });
+    const prefs = await this.loadPreferences();
+    if (prefs) print('Loaded preferences: volume=' + prefs.volume);
+  }
+
+  async logInteraction(action: string, data: any) {
+    await this.client.from('user_interactions').insert({
+      action,
+      data: JSON.stringify(data),
+      timestamp: new Date().toISOString(),
+      session_id: 'lens_' + Date.now(),
+    });
+  }
+
+  async savePreferences(preferences: any) {
+    await this.client.from('user_preferences').upsert(
+      {
+        user_id: this.uid,
+        preferences: JSON.stringify(preferences),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' }
+    );
+  }
+
+  async loadPreferences(): Promise<any> {
+    const { data } = await this.client
+      .from('user_preferences')
+      .select('preferences')
+      .eq('user_id', this.uid)
+      .limit(1);
+    return data?.length ? JSON.parse(data[0].preferences) : null;
+  }
+
+  onDestroy() {
+    if (this.client) this.client.removeAllChannels();
+  }
+}
+```
+
+### Tips
+
+Use upsert for preferences
+`upsert` with `{ onConflict: 'user_id' }` lets you call `savePreferences` at any time without first checking if a row exists. It inserts on the first call and updates on every subsequent call.
+
+Button-triggered data fetch
+The example in the package attaches a `RectangleButton.onTriggerUp` handler to a Spectacles UI Kit button so users can pull fresh data on demand. Wire this up in your scene to avoid polling.
+
+---
+
+## Storage — Download 3D models, images, and audio from a bucket
+
+### What it does
+
+Downloads three types of assets stored in a Supabase Storage bucket: a `.glb` 3D model (instantiated as a GLTF scene object), a `.jpg` image (applied to an Image component), and an `.mp3` audio file (played via an AudioComponent). All three downloads run in parallel.
+
+### Setup
+
+1. Create a public bucket named `test-bucket` in your Snap Cloud dashboard.
+2. Upload assets using folder conventions: `models/rabbit.glb`, `images/spectacles.jpg`, `audio/chill.mp3`.
+3. Under **Storage → Policies**, add a policy granting authenticated users SELECT access.
+
+### Code
+
+```ts
+import {
+  createClient,
+  SupabaseClient,
+} from 'SupabaseClient.lspkg/supabase-snapcloud';
+
+const remoteMediaModule =
+  require('LensStudio:RemoteMediaModule') as RemoteMediaModule;
+const internetModule = require('LensStudio:InternetModule') as InternetModule;
+
+@component
+export class StorageLoader extends BaseScriptComponent {
+  @input supabaseProject: SupabaseProject;
+  @input bucketName: string = 'test-bucket';
+
+  @input modelFilePath: string = 'models/rabbit.glb';
+  @input imageFilePath: string = 'images/spectacles.jpg';
+  @input audioFilePath: string = 'audio/chill.mp3';
+
+  @input @allowUndefined modelParent: SceneObject;
+  @input @allowUndefined defaultMaterial: Material;
+  @input @allowUndefined imageDisplay: Image;
+  @input @allowUndefined audioPlayer: SceneObject;
+
+  private client: SupabaseClient;
+  private uid: string;
+
+  onAwake() {
+    this.createEvent('OnStartEvent').bind(() => this.onStart());
+  }
+
+  onStart() {
+    this.initSupabase();
+  }
+
+  async initSupabase() {
+    const options = { realtime: { heartbeatIntervalMs: 2500 } };
+    this.client = createClient(
+      this.supabaseProject.url,
+      this.supabaseProject.publicToken,
+      options
+    );
+    if (this.client) {
+      await this.signInUser();
+      if (this.uid) await this.loadAssets();
+    }
+  }
+
+  async signInUser() {
+    const { data, error } = await this.client.auth.signInWithIdToken({
+      provider: 'snapchat',
+      token: '',
+    });
+    if (!error) {
+      this.uid = JSON.stringify(data.user.id).replace(/^"(.*)"$/, '$1');
+    }
+  }
+
+  async loadAssets() {
+    const baseUrl = this.supabaseProject.url.replace(/\/$/, '');
+    const storageUrl = `${baseUrl}/storage/v1/object/public/${this.bucketName}/`;
+
+    // 3D model via RemoteMediaModule
+    if (this.modelParent) {
+      const resource = (internetModule as any).makeResourceFromUrl(
+        storageUrl + this.modelFilePath
+      );
+      remoteMediaModule.loadResourceAsGltfAsset(
+        resource,
+        (gltfAsset) => {
+          const settings = GltfSettings.create();
+          settings.convertMetersToCentimeters = true;
+          gltfAsset.tryInstantiateAsync(
+            this.sceneObject,
+            this.defaultMaterial,
+            (obj) => {
+              obj.setParent(this.modelParent);
+              obj.getTransform().setLocalPosition(vec3.zero());
+              print('3D model loaded');
+            },
+            (err) => print('Model error: ' + err),
+            (_progress) => {},
+            settings
+          );
+        },
+        (err) => print('GLTF load error: ' + err)
+      );
+    }
+
+    // Image texture
+    if (this.imageDisplay) {
+      const { data, error } = await this.client.storage
+        .from(this.bucketName)
+        .download(this.imageFilePath);
+      if (!error && data) {
+        const resource = DynamicResource.createWithBuffer(await data.bytes());
+        remoteMediaModule.loadResourceAsImageTexture(
+          resource,
+          (texture) => {
+            this.imageDisplay.enabled = true;
+            this.imageDisplay.mainPass.baseTex = texture;
+            print('Image loaded');
+          },
+          (err) => print('Image error: ' + err)
+        );
+      }
+    }
+
+    // Audio
+    if (this.audioPlayer) {
+      const publicUrl = this.client.storage
+        .from(this.bucketName)
+        .getPublicUrl(this.audioFilePath).data.publicUrl;
+      const resource = (internetModule as any).makeResourceFromUrl(publicUrl);
+      remoteMediaModule.loadResourceAsAudioTrackAsset(
+        resource,
+        (audioAsset) => {
+          let comp =
+            this.audioPlayer.getComponent('Component.AudioComponent') ||
+            this.audioPlayer.createComponent('Component.AudioComponent');
+          comp.audioTrack = audioAsset;
+          comp.volume = 0.8;
+          comp.play(1);
+          print('Audio loaded and playing');
+        },
+        (err) => print('Audio error: ' + err)
+      );
+    }
+  }
+
+  onDestroy() {
+    if (this.client) this.client.removeAllChannels();
+  }
+}
+```
+
+### Tips
+
+GLB recommended over GLTF
+Use `.glb` (binary GLTF) for 3D models. It loads faster and avoids the need for separate texture/bin sidecar files in your bucket.
+
+Model scale and orientation
+Downloaded models are often scaled in meters. The example enables `convertMetersToCentimeters = true` in `GltfSettings`, which handles the Lens Studio unit difference. You may still need to adjust local scale and rotation in your scene after instantiation.
+
+Parallel downloads
+The example fires all three downloads concurrently rather than sequentially. If one asset is optional in your experience, wrap it in a conditional so missing scene references don't block the others.
+
+---
+
+## Realtime — Bidirectional cursor synchronization between Spectacles and web
+
+### What it does
+
+Creates a persistent WebSocket channel that can operate in two modes, toggled by a button:
+
+- **Broadcast** – Reads the world position of a tracked scene object each frame, converts it to normalized 2D screen coordinates, and sends it to all subscribers.
+- **Follow** – Receives position updates from another client (e.g. a web browser) and smoothly interpolates a cursor object to the incoming coordinates.
+
+### Setup
+
+1. Open the **Example2-RealTime** scene.
+2. Assign a `SnapCloudRequirements` component and set a unique `channelName`.
+3. Assign the `cursorObject` (the object to track or move) and an optional `RectangleButton` for mode toggling.
+
+### Code
+
+```ts
+import {
+  createClient,
+  RealtimeChannel,
+  SupabaseClient,
+} from 'SupabaseClient.lspkg/supabase-snapcloud';
+
+@component
+export class RealtimeCursor extends BaseScriptComponent {
+  @input supabaseProject: SupabaseProject;
+  @input channelName: string = 'my-cursor-channel';
+  @input cursorObject: SceneObject;
+
+  private client: SupabaseClient;
+  private channel: RealtimeChannel;
+  private userId: string;
+  private isBroadcastMode: boolean = true;
+  private targetPosition: vec3 = vec3.zero();
+
+  onAwake() {
+    this.createEvent('OnStartEvent').bind(() => this.init());
+
+    // Smooth follow interpolation runs every frame
+    this.createEvent('UpdateEvent').bind(() => {
+      if (!this.isBroadcastMode && this.cursorObject) {
+        const current = this.cursorObject.getTransform().getLocalPosition();
+        const next = vec3.lerp(current, this.targetPosition, 0.15);
+        this.cursorObject.getTransform().setLocalPosition(next);
+      }
+    });
+  }
+
+  async init() {
+    const options = { realtime: { heartbeatIntervalMs: 2500 } };
+    this.client = createClient(
+      this.supabaseProject.url,
+      this.supabaseProject.publicToken,
+      options
+    );
+    await this.client.auth.signInWithIdToken({
+      provider: 'snapchat',
+      token: '',
+    });
+
+    this.userId = 'spectacles_' + Math.random().toString(36).substr(2, 9);
+
+    this.channel = this.client.channel('cursor-' + this.channelName, {
+      config: { broadcast: { self: false } },
+    });
+
+    // Receive cursor updates from other clients
+    this.channel
+      .on('broadcast', { event: 'cursor-move' }, (msg) => {
+        if (!this.isBroadcastMode) {
+          // Convert normalized web coords (0-100) to local Lens Studio space
+          const x = (msg.payload.x / 100) * 100 - 50;
+          const y = 25 - (msg.payload.y / 100) * 50;
+          this.targetPosition = new vec3(x, y, -100);
+        }
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          print('Realtime channel active');
+          this.startBroadcastLoop();
+        }
+      });
+  }
+
+  private broadcastTimer: any;
+
+  startBroadcastLoop() {
+    this.broadcastTimer = this.createEvent('DelayedCallbackEvent');
+    const tick = () => {
+      if (this.isBroadcastMode && this.cursorObject) {
+        const world = this.cursorObject.getTransform().getWorldPosition();
+        // Convert world position to normalized 0-100 screen percentage
+        const screenX = Math.max(
+          0,
+          Math.min(100, ((world.x + 50) / 100) * 100)
+        );
+        const screenY = Math.max(
+          0,
+          Math.min(100, (1 - (world.y + 25) / 50) * 100)
+        );
+
+        this.channel.send({
+          type: 'broadcast',
+          event: 'cursor-move',
+          payload: {
+            user_id: this.userId,
+            x: screenX,
+            y: screenY,
+            timestamp: Date.now(),
+          },
+        });
+      }
+      this.broadcastTimer.reset(0.1); // 10 Hz
+    };
+    this.broadcastTimer.bind(tick);
+    tick();
+  }
+
+  // Call this from a button to toggle modes
+  toggleMode() {
+    this.isBroadcastMode = !this.isBroadcastMode;
+    print('Mode: ' + (this.isBroadcastMode ? 'BROADCASTING' : 'FOLLOWING'));
+  }
+
+  onDestroy() {
+    if (this.broadcastTimer) this.broadcastTimer.enabled = false;
+    if (this.client) this.client.removeAllChannels();
+  }
+}
+```
+
+### Tips
+
+heartbeatIntervalMs is required
+Always set `heartbeatIntervalMs: 2500` in the realtime options. Without this, the WebSocket connection will time out during the alpha period.
+
+Coordinate mapping
+The example converts Lens Studio 3D world space into a 0–100 normalized percentage that web clients can easily use as CSS `left`/`top` values. Adjust the range constants to match your scene's spatial scale.
+
+Broadcast throttling
+Broadcasting every frame (60 Hz) wastes bandwidth. The example uses a `DelayedCallbackEvent` loop running at 10 Hz (0.1 s interval), which is more than enough for smooth cursor tracking.
+
+---
+
+## Edge Functions — Serverless image processing triggered from a Lens
+
+### What it does
+
+Sends an image URL (pointing to a file already in Supabase Storage) to a serverless edge function. The function downloads the image, applies transformations, saves the result back to storage, and returns the new URL. The Lens then downloads and displays the processed image.
+
+### Backend setup
+
+Deploy the following function in your Snap Cloud dashboard under **Edge Functions → Via Editor**. Name it `process-image`.
+
+```ts
+// Deno edge function: process-image
+import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
+import { createClient } from 'jsr:@supabase/supabase-js@2';
+
+Deno.serve(async (req) => {
+  const { imageUrl } = await req.json();
+  if (!imageUrl) {
+    return new Response(JSON.stringify({ error: 'imageUrl required' }), {
+      status: 400,
+    });
+  }
+
+  // Download the source image
+  const imageResponse = await fetch(imageUrl);
+  const imageBuffer = await imageResponse.arrayBuffer();
+  const originalSize = imageBuffer.byteLength;
+
+  // (Apply your server-side processing here — e.g. resize, filter, watermark)
+
+  // Upload processed result back to storage
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  );
+  const outputPath = `processed/${Date.now()}.jpg`;
+  await supabase.storage.from('test-bucket').upload(outputPath, imageBuffer, {
+    contentType: 'image/jpeg',
+    upsert: true,
+  });
+
+  const { data } = supabase.storage
+    .from('test-bucket')
+    .getPublicUrl(outputPath);
+
+  return new Response(
+    JSON.stringify({
+      success: true,
+      processedUrl: data.publicUrl,
+      originalSize,
+      processedSize: imageBuffer.byteLength,
+      operations: ['download', 'process', 'upload'],
+      storagePath: outputPath,
+    }),
+    {
+      headers: { 'Content-Type': 'application/json', Connection: 'keep-alive' },
+    }
+  );
+});
+```
+
+### Lens Studio code
+
+```ts
+import {
+  createClient,
+  SupabaseClient,
+} from 'SupabaseClient.lspkg/supabase-snapcloud';
+
+@component
+export class EdgeFunctionImageProcessing extends BaseScriptComponent {
+  @input supabaseProject: SupabaseProject;
+  @input functionName: string = 'process-image';
+  @input imageUrl: string = ''; // URL of image already in your Storage bucket
+  @input @allowUndefined outputImage: Image;
+
+  private client: SupabaseClient;
+  private uid: string;
+
+  onAwake() {
+    this.createEvent('OnStartEvent').bind(() => this.onStart());
+  }
+
+  onStart() {
+    this.initSupabase();
+  }
+
+  async initSupabase() {
+    const options = { realtime: { heartbeatIntervalMs: 2500 } };
+    this.client = createClient(
+      this.supabaseProject.url,
+      this.supabaseProject.publicToken,
+      options
+    );
+    if (this.client) {
+      await this.signInUser();
+      if (this.uid) await this.processImage();
+    }
+  }
+
+  async signInUser() {
+    const { data, error } = await this.client.auth.signInWithIdToken({
+      provider: 'snapchat',
+      token: '',
+    });
+    if (!error) {
+      this.uid = JSON.stringify(data.user.id).replace(/^"(.*)"$/, '$1');
+    }
+  }
+
+  async processImage() {
+    print('Calling edge function: ' + this.functionName);
+
+    const { data, error } = await this.client.functions.invoke(
+      this.functionName,
+      {
+        body: { imageUrl: this.imageUrl },
+      }
+    );
+
+    if (error) {
+      print('Function error: ' + JSON.stringify(error));
+      return;
+    }
+
+    if (data?.success && data.processedUrl) {
+      print('Processed URL: ' + data.processedUrl);
+      print('Operations: ' + data.operations.join(', '));
+      await this.displayProcessedImage(data.processedUrl);
+    }
+  }
+
+  async displayProcessedImage(url: string) {
+    if (!this.outputImage) return;
+
+    const internetModule =
+      require('LensStudio:InternetModule') as InternetModule;
+    const remoteMediaModule =
+      require('LensStudio:RemoteMediaModule') as RemoteMediaModule;
+
+    const resource = (internetModule as any).makeResourceFromUrl(url);
+    remoteMediaModule.loadResourceAsImageTexture(
+      resource,
+      (texture) => {
+        this.outputImage.enabled = true;
+        this.outputImage.mainPass.baseTex = texture;
+        print('Processed image displayed');
+      },
+      (err) => print('Display error: ' + err)
+    );
+  }
+
+  onDestroy() {
+    if (this.client) this.client.removeAllChannels();
+  }
+}
+```
+
+### Tips
+
+Edge functions run in Deno
+Edge functions use Deno, not Node.js. Use `jsr:@supabase/supabase-js@2` for the Supabase import and `jsr:@supabase/functions-js/edge-runtime.d.ts` for type definitions.
+
+Use `SUPABASE_SERVICE_ROLE_KEY` on the server
+The edge function uses the service role key (injected automatically by Supabase) to write back to Storage. Never expose the service role key in your Lens code — only use the public `anon` key on the client side.
+
+Pass URLs, not bytes
+Rather than base64-encoding images and sending them in the request body, pass the Storage URL and let the function download it. This is faster, avoids request size limits, and is the pattern used in the example.

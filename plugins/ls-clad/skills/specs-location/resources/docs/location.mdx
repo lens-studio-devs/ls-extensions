@@ -1,0 +1,161 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# Location
+
+## Overview
+
+Spectacles grants access to the device's GPS coordinates, opening up a world of possibilities for location-based experiences with the Location API.
+
+> To use location services, users must be logged in and paired with their Snapchat account, and their location permission must be enabled. Users are also expected to be connected to the internet.
+
+## Getting Started
+
+### Prerequisites
+
+Lens Studio v5.7.0 or later
+Spectacles OS v5.60.000 or later
+
+### Setup Instructions
+
+To access the location API on Spectacles, you need to declare your Lens permission to use the RawLocationModule. For more information on how to declare permissions, refer to the [Permission Overview](https://developers.snap.com/spectacles/permission-privacy/overview) documentation.
+
+```javascript
+require('LensStudio:RawLocationModule');
+```
+
+## Location and Heading
+
+Location can be retrieved through the [`LocationService` API](https://developers.snap.com/lens-studio/api/lens-scripting/classes/Built-In.LocationService.html). You can retrieve the user's current position through [`getCurrentPosition`](https://developers.snap.com/lens-studio/api/lens-scripting/classes/Built-In.LocationService.html#getcurrentposition), and their heading through [`onNorthAlignedOrientationUpdate`](https://developers.snap.com/lens-studio/api/lens-scripting/classes/Built-In.LocationService.html#onnorthalignedorientationupdate).
+
+Make sure the right accuracy for your use case is selected using [`GeoLocationAccuracy`](https://developers.snap.com/lens-studio/api/lens-scripting/enums/Built-In.GeoLocationAccuracy.html).
+
+> Heading accuracy improves as you walk around due to automatic calibration adjustments.
+
+### Example
+
+```ts
+require('LensStudio:RawLocationModule');
+
+@component
+export class LocationExample extends BaseScriptComponent {
+  latitude: number;
+  longitude: number;
+  altitude: number;
+  horizontalAccuracy: number;
+  verticalAccuracy: number;
+  timestamp: Date;
+  locationSource: string;
+
+  private repeatUpdateUserLocation: DelayedCallbackEvent;
+  private locationService: LocationService;
+  onAwake() {
+    this.createEvent('OnStartEvent').bind(() => {
+      this.createAndLogLocationAndHeading();
+    });
+
+    this.repeatUpdateUserLocation = this.createEvent('DelayedCallbackEvent');
+    this.repeatUpdateUserLocation.bind(() => {
+      // Get users location.
+      this.locationService.getCurrentPosition(
+        function (geoPosition) {
+          //Check if location coordinates have been updated based on timestamp
+          if (
+            this.timestamp === undefined ||
+            this.timestamp.getTime() != geoPosition.timestamp.getTime()
+          ) {
+            this.latitude = geoPosition.latitude;
+            this.longitude = geoPosition.longitude;
+            this.horizontalAccuracy = geoPosition.horizontalAccuracy;
+            this.verticalAccuracy = geoPosition.verticalAccuracy;
+            print('long: ' + this.longitude);
+            print('lat: ' + this.latitude);
+            if (geoPosition.altitude != 0) {
+              this.altitude = geoPosition.altitude;
+              print('altitude: ' + this.altitude);
+            }
+            this.timestamp = geoPosition.timestamp;
+          }
+        },
+        function (error) {
+          print(error);
+        }
+      );
+      // Acquire next location update in 1 second, increase this value if required for AR visualisation purposes such as 0.5 or 0.1 seconds
+      this.repeatUpdateUserLocation.reset(1.0);
+    });
+  }
+  createAndLogLocationAndHeading() {
+    // Create location handler
+    this.locationService = GeoLocation.createLocationService();
+
+    // Set the accuracy
+    this.locationService.accuracy = GeoLocationAccuracy.Navigation;
+
+    // Acquire heading orientation updates
+    var onOrientationUpdate = function (northAlignedOrientation) {
+      //Providing 3DoF north aligned rotation in quaternion form
+      let heading = GeoLocation.getNorthAlignedHeading(northAlignedOrientation);
+      print('Heading orientation: ' + heading.toFixed(3));
+      // Convert to a 2DoF rotation for plane rendering purposes
+      var rotation = (heading * Math.PI) / 180;
+      print(
+        'Screen transform rotation: ' + quat.fromEulerAngles(0, 0, rotation)
+      );
+    };
+    this.locationService.onNorthAlignedOrientationUpdate.add(
+      onOrientationUpdate
+    );
+
+    // Acquire next location immediately with zero delay
+    this.repeatUpdateUserLocation.reset(0.0);
+  }
+}
+```
+
+## Location and Heading visualisation
+
+Spectacles provides one template to assist in getting started with location services.
+
+The [Outdoor Navigation Template](https://github.com/Snapchat/Spectacles-Sample/tree/main/Outdoor%20Navigation) serves as an example for providing directions using location and heading information. It describes how to visualise content in a 2D map or AR view.
+
+### 2D Map
+
+The 2D map component provides functionality which includes zooming and scrolling of a 2D map, follow-me functionality, manual generation of pins, automatic points of interest generation using the Snap Places API, and simultaneous AR view content visualization. The Snap Places API allows developers to bring Snapchat map features into their Lenses, enabling interaction with nearby places.
+
+For using the [Snapchat Places API](https://developers.snap.com/lens-studio/features/remote-apis/snap-places-api), [Extended Permissions](https://developers.snap.com/spectacles/permission-privacy/extended-permissions) are required when combined with the Location Service for automatic pin generation.
+
+### AR view
+
+The AR view visualizes points of interest in AR. It requires Navigation accuracy (which auto-activates the `FUSED_LOCATION` source and the 6DoF pose from lat/lon/altitude + north-aligned orientation). Implementation details are in the [Outdoor Navigation template](https://github.com/Snapchat/Spectacles-Sample/tree/main/Outdoor%20Navigation).
+
+## Available Location Categories
+
+When using the Snap Places API with location services, you can filter nearby places by specific categories. The `showNearbyPlaces()` method accepts an array of category names to display specific types of places.
+
+### Usage Examples
+
+`showNearbyPlaces()` takes an array of category names (or `null` for all). See the `showNearbyPlaces` examples in SKILL.md.
+
+### Category Reference
+
+The following table lists all available location categories that can be used with the Places API. Use the **Category Name** values in your `showNearbyPlaces()` calls. The full category table is rendered from a separate data source and not included here — see the original docs at https://developers.snap.com/spectacles/about-spectacles-features/apis/location#category-reference for the complete list.
+
+> You can combine multiple category names in a single call to `showNearbyPlaces()` to show different types of related places simultaneously. For example, `["Restaurant", "Café", "Bar"]` will show all food and beverage establishments.
+
+> Passing `null` or an empty array to `showNearbyPlaces()` will return all available place categories in the area, which may result in a large number of pins on your map.
+
+## Known Limitations
+
+### Location
+
+- It may take a moment for the Lens to initialize and provide location data on the first run if there is no active internet connection.
+- Navigation accuracy mode performance might degrade at night time
+
+### Heading
+
+- After a new SnapOS is installed, heading orientation can take a moment to initialise. This is due to a calibration process that occurs in the background which is invisible to the user. This calibration process can be accelerated using the steps below:
+  - Just after a SnapOS upgrade, wear your Spectacles with the display turned on.
+  - Rotate the device for about 20 seconds. This involves looking around, turning around, and looking up and down to cover several directions.

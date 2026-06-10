@@ -1,0 +1,55 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# Lifecycle
+
+> Upstream docs for figures and diagrams: [Lifecycle](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/lifecycle).
+
+The following steps and flowchart describe how Spectacles Sync Kit sets up a Connected Lenses session and when certain actions are safe to do.
+
+### Session Setup Steps
+
+1. SessionController is initialized.
+2. SyncEntities in the scene subscribe to events on SessionController.
+
+✅ It is okay to add storage properties, subscribe to events, and request ownership of SyncEntities.
+
+3. Instantiators in the scene are initialized and subscribe to events on SessionController.
+4. On mapping or relocalization success, SessionController begins to set up the session. When the session setup is finished, `SessionController.getIsReady()` becomes true and all `SessionController.notifyOnReady()` callbacks are executed.
+
+✅ SessionController is now completely ready to use and SessionController APIs can be called.
+
+5. All SyncEntities begin to initialize themselves. Depending on the situation, they may initialize immediately, or may take up to a second to initialize. When each SyncEntity is ready and fully initialized, they execute their `SyncEntity.notifyOnReady()` callbacks.
+
+✅ SyncEntity is now completely ready to use. Storage properties can be set and retrieved, and networked events can be sent and received.
+
+6. When each Instantiator is ready and fully initialized, they execute their `Instantiator.notifyOnReady()` callbacks.
+
+✅ Instantiator is now completely ready to use. Prefabs can be instantiated across the network.
+
+### Session Setup Flowchart
+
+> See [Session Setup Flowchart](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/lifecycle#session-setup-flowchart) in the upstream docs for diagrams.
+
+<p align="left">
+
+</p>
+
+### Key Takeaways
+
+These are the most important points to remember as a developer:
+
+#### SessionController
+
+- If you need to use SessionController APIs, wait for the `SessionController.notifyOnReady()` callback to run, or for `SessionController.getIsReady()` to return true.
+
+#### SyncEntity
+
+- If you need to set up a SyncEntity by adding storage properties or callbacks, it is fine to do so at any point.
+- If you need to make changes to a SyncEntity (e.g., get / set a storage property) or start its behavior, wait for the `SyncEntity.notifyOnReady()` callback, or for `SyncEntity.isSetupFinished` to return true.
+
+#### Instantiator
+
+- If you need to instantiate a prefab using the Instantiator, wait for the `Instantiator.notifyOnReady()` callback, or for `Instantiator.isReady()` to return true.

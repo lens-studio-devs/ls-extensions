@@ -1,0 +1,97 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# User Information
+
+> Upstream docs for rendered code examples: [User Information](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/features/user-information).
+
+There are multiple ways to identify users in a Connected Lens session through the UserInfo class – `UserInfo.userId`, `UserInfo.connectionId`, and `UserInfo.displayName`.
+
+UserInfo is available from a number of sources, including SessionController APIs, `SyncEntity.ownerInfo`, and `NetworkRoot.ownerInfo`. MessageInfo for Networked Events also includes userId and connectionId of the message sender.
+
+### UserId
+
+`UserInfo.userId` is tied to a user’s Snapchat account. If two pairs of Spectacles are paired to the same user account, the userId for those devices in the session will be the same. The userId for a given user is different in different Lenses. `UserInfo.userId` is a string.
+
+### ConnectionId
+
+`UserInfo.connectionId` is tied to the device that has joined the session. `UserInfo.connectionId` is unique to each connected device, and unique to each time the device joins a session. Realtime Store ownership is tied to connectionId, not userId. `UserInfo.connectionId` is a string.
+
+### DisplayName
+
+`UserInfo.displayName` is the name a user chooses on their Snapchat account profile. It is consistent across devices, Lenses, and sessions. `UserInfo.displayName` is a string.
+
+### Snapchat UserInfo
+
+In addition to the above properties, you can also access additional properties from Snapchat UserInfo.
+
+Snapchat UserInfo can be used in Bitmoji surfaces such as [Bitmoji Module](../../../../lens-studio/features/bitmoji-avatar/bitmoji-3d#getting-the-bitmoji-through-script). This is useful for showing a user's Bitmoji in a Connected Lens session.
+
+**Important:** In mocked singleplayer mode,`session.getSnapchatUser()` will return `null` since there is no Snapchat user information available.
+
+```typescript
+import { SessionController } from 'SpectaclesSyncKit.lspkg/Core/SessionController';
+
+@component
+export class GetSnapchatUserInfo extends BaseScriptComponent {
+  private sessionController: SessionController =
+    SessionController.getInstance();
+  onAwake() {
+    this.sessionController.notifyOnReady(() => this.onReady());
+  }
+
+  private onReady(): void {
+    const session = this.sessionController.getSession();
+    if (!session) {
+      print('No session available');
+      return;
+    }
+
+    const localUserInfo = SessionController.getInstance().getLocalUserInfo();
+    if (!localUserInfo) {
+      print('No local user info available');
+      return;
+    } else {
+      print('Local user info available: ' + JSON.stringify(localUserInfo));
+    }
+
+    // Get Snapchat user info for the local user
+    session.getSnapchatUser(localUserInfo, (snapchatUser: SnapchatUser) => {
+      if (!snapchatUser) {
+        print(
+          'getSnapchatUser returned null (expected in singleplayer/offline mode)'
+        );
+        return;
+      }
+
+      const name =
+        snapchatUser.displayName || snapchatUser.userName || '<unknown>';
+      print(
+        'Got SnapchatUser: ' + name + ', hasBitmoji=' + snapchatUser.hasBitmoji
+      );
+    });
+  }
+}
+```
+
+### Example Scenario
+
+This is a simple example showing a situation where one user joins a Connected Lenses session on two devices at once, and another user joins on a single device. These example userIds, connectionIds, and displayNames are simplified for explanation.
+
+#### Lens #1
+
+|                   | userID | connectionID | displayName  |
+| :---------------- | :----: | :----------: | :----------: |
+| Spectacles User A |  abc   |     123      | Spectacles A |
+| Spectacles User A |  abc   |     456      | Spectacles A |
+| Spectacles User B |  def   |     789      | Spectacles B |
+
+#### Lens #2
+
+|                   | userID | connectionID | displayName  |
+| :---------------- | :----: | :----------: | :----------: |
+| Spectacles User A |  ghi   |     987      | Spectacles A |
+| Spectacles User A |  ghi   |     654      | Spectacles A |
+| Spectacles User B |  jlk   |     321      | Spectacles B |

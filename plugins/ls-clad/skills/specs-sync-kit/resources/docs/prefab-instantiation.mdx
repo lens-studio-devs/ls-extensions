@@ -1,0 +1,189 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# Prefab Instantiation
+
+> Upstream docs for figures and rendered code examples: [Prefab Instantiation](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/features/prefab-instantiation).
+
+To create new objects at run-time, use the Instantiator script. Any objects instantiated through this script will automatically be instantiated across the network.
+
+### Setup
+
+> See [Setup](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/features/prefab-instantiation#setup) in the upstream docs for diagrams.
+
+Add the Instantiator script to a scene object in the Scene Hierarchy. The scene object should be located lower in the Scene Hierarchy than the [SessionController](./session-controller), and above the script that will reference it to instantiate objects.
+
+In the Inspector panel, configure the following inputs:
+
+- **Prefabs:** Add any prefabs to be instantiated by this Intantiator.
+- **Spawner Owns Object:** If enabled, the local user will claim [ownership](./sync-entity#ownership) of the instantiated object.
+- **Spawn as Children:** If enabled, a **Spawn Under Parent** input will be visible. Populate this input with the scene object that will be the parent of instantiated objects. If left blank, objects will be spawned under the Instantiator scene object.
+- **Auto Instantiate:** See more information [below](#auto-instantiation).
+
+Once the Instantiator is set up in the Scene Hierarchy, it can be called on from another script.
+
+First, reference the Instantiator from the other script. In the Inspector for the script component, verify that the instantiator field is populated with the Instantiator script.
+
+Add an ObjectPrefab input and populate the Inspector with the prefab to be instantiated. The prefab should already be added to the Instantiator's **Prefabs** list.
+
+```ts
+ @input()
+ instantiator: Instantiator
+
+ @input()
+ prefab: ObjectPrefab
+```
+
+### Simple Instantiation
+
+Before instantiating an object, check that the Instantiator has finished setting up and is ready to use. This can be done either by checking `Instantiator.isReady()`, which returns a boolean, or `Instantiator.notifyOnReady()` similar to SyncEntity and SessionController. Once ready, the Instantiator can be used to instantiate the prefab by calling `Instantiator.instantiate()`, which takes the prefab as a requried parameter.
+
+```ts
+onReady() {
+    this.instantiator.instantiate(this.prefab)
+}
+
+onAwake() {
+    this.instantiator.notifyOnReady(() => { this.onReady() })
+}
+```
+
+### Advanced Instantiation Options
+
+Use the InstantiationOptions class to define options for instantiation. Each of the options on this class is optional, meaning you only need to define the ones you want to use. The options object can be passed into the `Instantiator.instantiate()` method as an optional second parameter.
+
+Below is the full list of options with examples:
+
+- `InstantiationOptions.claimOwnership`: If true, the local user who instantiates the prefab will own its Realtime Store (boolean).
+- `InstantiationOptions.persistence`: RealtimeStore.Persistence of the instantiated object.
+- `InstantiationOptions.overrideNetworkId`: Sets a custom network ID (string).
+- `InstantiationOptions.localPosition`: The initial local position of the prefab’s root (vec3), defaults to `(0,0,0)`.
+- `InstantiationOptions.localRotation`: The initial local rotation of the prefab’s root (quat), defaults to `quat.quatIdentity()`.
+- `InstantiationOptions.localScale`: The initial local scale of the prefab’s root (vec3), defaults to `(1,1,1)`.
+- `InstantiationOptions.worldPosition`: The initial world position of the prefab’s root (vec3), defaults to `(0,0,0)`.
+- `InstantiationOptions.worldRotation`: The initial world rotation of the prefab’s root (quat), defaults to `quat.quatIdentity()`.
+- `InstantiationOptions.worldScale`: The initial world scale of the prefab’s root (vec3), defaults to `(1,1,1)`.
+- `InstantiationOptions.onSuccess`: Function called when the prefab is successfully instantiated.
+- `InstantiationOptions.onError`: Function called when an error occurs during instantiation.
+
+```ts
+onAwake() {
+    this.sessionController: SessionController = SessionController.getInstance()
+    this.instantiator.notifyOnReady(() => { this.onReady() })
+}
+
+onReady() {
+    const customDataStore = GeneralDataStore.create()
+    customDataStore.putString("displayName", this.sessionController.getLocalUserName())
+
+    const options = new InstantiationOptions()
+    options.claimOwnership = true
+    options.persistence = 'Session'
+    options.localPosition = new vec3(0, 0, 0)
+    options.localRotation = quat.quatIdentity()
+    options.localScale = new vec3(0, 0, 0)
+    options.onSuccess = (networkRootInfo) => {print("Success!")}
+    options.onError = (error) => {print("Error!")}
+    options.customDataStore = customDataStore
+
+    this.instantiator.instantiate(this.prefab, options)
+}
+```
+
+You can also pass a simple JS object instead of the InstantionOptions class.
+
+```ts
+onAwake() {
+    this.instantiator.notifyOnReady(() => { this.onReady() })
+}
+
+onReady() {
+    this.instantiator.instantiate(this.prefab, {
+        claimOwnership: true,
+        persistence: 'Session',
+        localPosition: new vec3(0, 0, -100),
+    })
+}
+```
+
+### Auto Instantiation
+
+Auto instantiation automatically instantiates prefabs when a user joins the session. To use auto instantiation, enable **Auto Instantiate** in the Instantiator Inspector panel. When enabled, additional input fields will appear:
+
+- **Prefabs:** Click `+ Add Value` to add the prefabs to be auto instantiated.
+- **Persistence:** See [SyncEntity > Persistence](./sync-entity#persistence) for options.
+- **Auto Instantiate Owner:** If Owned is selected, the local user who spawns the prefab will claim [ownership](./sync-entity#ownership) of the object. Otherwise, the instantiated object will be unowned.
+
+### Referencing the New Object
+
+The newly created object can be referenced from its NetworkRootInfo. A NetworkRootInfo is created on the root scene object of every instantiated prefab and can be accessed either from the `onSuccess` callback, or from the object’s SyncEntity, if it has one. A NetworkRootInfo provides the following information about the instantiated object, as well as methods similar to SyncEntity:
+
+- `NetworkRootInfo.instantiatedObject`: The instantiated scene object.
+- `NetworkRootInfo.locallyCreated`: Boolean indicating whether the prefab was instantiated by the local user.
+- `NetworkRootInfo.dataStore`: The GeneralDataStore associated with the instantiated object, which stores information about the prefab’s instantiation. Returns the `InstantiationOptions.customDataStore`, if set during instantiation.
+- `NetworkRootInfo.onDestroyed`: Event that fires when the instantiated object is destroyed by anyone.
+- `NetworkRootInfo.onLocalDestroyed`: Event that fires when the instantiated object is destroyed by the local user.
+- `NetworkRootInfo.onRemoteDestroyed`: Event that fires when the instantiated object is destroyed by another user.
+- `NetworkRootInfo.getOwnerUserId()`: `UserInfo.userId` of the owner (string), or null.
+- `NetworkRootInfo.getOwnerId()`: UserInfo of the owner, or null.
+- `NetworkRootInfo.isOwnedBy(connectionId: string)`: Returns a boolean indicating whether the instantiated object is owned by a user with the given connectionId.
+- `NetworkRootInfo.isOwnedByUserInfo(user: ConnectedLensModule.UserInfo)`: Returns a boolean indicating whether the instantiated object is owned by the given UserInfo.
+- `NetworkRootInfo.canIModifyStore()`: Returns a boolean indicating whether the local user can modify the instantiated object’s Realtime Store.
+- `NetworkRootInfo.doIOwnStore()`: Returns a boolean indicating whether the local user owns the instantiated object’s Realtime Store.
+
+#### OnSuccess Callback
+
+An `onSuccess` callback receives a NetworkRootInfo parameter when it is called. An `onSuccess` callback can be passed to `Instantiator.instantiate()` as part of the InstantiationOptions. It can also be passed as a third parameter, which overrides a callback set in the InstantationOptions object.
+
+Here is an example of how to reference the instantiated object in an `onSuccess` callback:
+
+```ts
+this.instantiator.instantiate(
+  this.prefab,
+  {},
+  (networkRootInfo: NetworkRootInfo) => {
+    const newObj = networkRootInfo.instantiatedObject;
+    print('instantiated new object: ' + newObj);
+  }
+);
+```
+
+#### SyncEntity.networkRoot
+
+Any SyncEntity that has been instantiated will also have a reference to its NetworkRootInfo.
+
+```ts
+if (this.syncEntity.networkRoot) {
+    print('Looks like I've been instantiated')
+
+    if (this.syncEntity.networkRoot.locallyCreated) {
+        print('I was created by the local user.')
+    } else {
+        print('I was created by another user.')
+    }
+}
+```
+
+### Hierarchy of Instantiated Objects
+
+> See [Hierarchy of Instantiated Objects](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/features/prefab-instantiation#hierarchy-of-instantiated-objects) in the upstream docs for diagrams.
+
+When a prefab is instantiated by the Instantiator, it is created as a **child** of a root scene object that holds the NetworkRootInfo. The NetworkRootInfo scene object is spawned as a child of the Spawn Under Parent set in the Instantiator Inspector inputs. This was done to solve a few problems, including enabling SyncEntities to find their NetworkRootInfo, and ensuring initial transforms are correct.
+
+It is important to keep the following points in mind regarding transformations:
+
+- The position, rotation, and scale options specific in InstantiationOptions are applied to the NetworkRootInfo scene object, not the instaniated object.
+- After instantiation, any changes to the instantiated object’s local position, rotation, and scale are made relative to the NetworkRootInfo scene object. This is especially relevant if you include a [SyncTransform](./sync-transform) on a prefab that is configured to sync locally.
+
+### Instantiation Flow
+
+Here is a recap of how instantiation works using the Instantiator component:
+
+1. Once the Instantiator setup is finished, `Instantiator.notifyOnReady()` will execute its callbacks and `Instantiator.isReady()` will return true.
+1. Once the Instantiator is ready, `Instantiator.instantiate()` can be called.
+1. An empty scene object is created using the world or local transform data, as specified in optional InstantiationOptions. NetworkRootInfo is attached to the empty scene object.
+1. The prefab is instantiated as a **child** of the NetworkRootInfo scene object.
+1. Immediately `OnAwake`, all SyncEntities look upward in their hierarchy to search for a NetworkRootInfo and determine if they are under a prefab. If a NetworkRootInfo is found, they generate their network ID in a special way in order to be tied to the prefab.
+1. Immediately after instantiating the object and after SyncEntities have found their NetworkRootInfos, the `onSuccess` callback is executed.

@@ -1,0 +1,36 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# Content Placement
+
+> Upstream docs for figures and diagrams: [Content Placement](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/features/content-placement).
+
+Connected Lenses on Spectacles are colocated, meaning they are experienced by multiple users in the same physical space at the same time. Spectacles Sync Kit provides a joining flow for guiding users to either map their space or relocalize against a shared coordinate space.
+
+As a developer, it is important to understand how to place content relative to the shared coordinate space and relative to Spectacles users.
+
+### Placing Colocated Content
+
+> See [Placing Colocated Content](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/features/content-placement#placing-colocated-content) in the upstream docs for diagrams.
+
+In the Scene Hierarchy, the Spectacles Sync Kit package includes a scene object called **ColocatedWorld [CONFIGURE_ME]**. This object is the root of the shared, colocated coordinate space. Children of the ColocatedWorld scene object are positioned, rotated, and scaled relative to the shared coordinate space.
+
+### Placing Content Relative to Users
+
+> See [Placing Content Relative to Users](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/features/content-placement#placing-content-relative-to-users) in the upstream docs for diagrams.
+
+Consider how users will find colocated content upon joining the session. When a user moves around to map their space or relocalize, they will likely move away from their own world origin and the origin of the shared coordinate space. This means that if content is placed relative to the world origin or ColocatedWorld scene object, it may not be noticeable to users right away. For example, content may appear behind a user.
+
+One way to handle content placement is to position shared content relative to the first user to join the session. Spectacles Sync Kit includes a script called **PositionInitializer**, which can be combined with [**SyncTransform**](./sync-transform), to serve this purpose. The PositionInitializer will position content relative to the first user, and SyncTransform will synchronize that placement for subsequent users.
+
+Add the PositionInitializer and [SyncTransform](./sync-transform) to the colocated scene object. This could be the root scene object for all shared content, or an individual child.
+
+Configure the PositionInitializer inputs in the Inspector:
+
+- **Position In Front of Camera:** Set the x, y, and z offsets relative to the first user.
+- **Should Face Camera:** If enabled, content will initially rotate about its y-axis to face the user.
+- **Trigger Only For Mapper:** If enabled, the scene object transform is set only for the first user to join the session. (This is recommended).
+
+Configure the SyncTransform. Refer to [Sync Transform > Setup](./sync-transform#setup) for more information.

@@ -1,0 +1,4 @@
+# Python >= 3.9 required.
+# Phase 1: analyze_lens_trace.py (perfetto only). Phase 2: trace_server.py also needs pandas.
+perfetto>=0.16.0
+pandas

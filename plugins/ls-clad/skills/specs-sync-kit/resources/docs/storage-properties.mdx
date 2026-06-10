@@ -1,0 +1,519 @@
+---
+sidebar_position: 9
+---
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+# Storage Properties
+
+Storage properties allow data to be easily synchronized on a [SyncEntity](./sync-entity) and stored for subsequent use. For example, storage properties can be used to update a scoreboard or synchronize the position of an object.
+
+### Adding Storage Properties to a SyncEntity
+
+Storage properties need to be added to a SyncEntity before they have any effect. You can add a storage property to a SyncEntity at any time, but it is recommended to do it as early as possible.
+
+<Tabs>
+<TabItem value="TypeScript">
+
+```ts
+​​private exampleProp = StorageProperty.manualInt('exampleProp', 0);
+
+onAwake() {
+    const syncEntity: SyncEntity = new SyncEntity(script);
+    syncEntity.addStorageProperty(exampleProp);
+}
+```
+
+</TabItem>
+</Tabs>
+
+Storage properties can also be added to a SyncEntity during construction as a StoragePropertySet. A StoragePropertySet constructor takes an array of StorageProperties as an argument, letting you add them all at once instead of one at a time.
+
+<Tabs>
+<TabItem value="TypeScript">
+
+```ts
+const syncEntity: SyncEntity = new SyncEntity(
+  this,
+  new StoragePropertySet([
+    StorageProperty.manualString('myString', 'hello'),
+    StorageProperty.forPosition(this.getTransform(), true),
+  ]),
+  true
+);
+```
+
+</TabItem>
+</Tabs>
+
+### Manual Storage Properties
+
+Manual storage properties are handled by the developer and meant to be accessed through script. You will be responsible for changing the value and reacting to changes. Depending on the [StorageType](#storage-types), [smoothing](#smoothing-property-values) may be configurable.
+
+#### Manual Storage Types
+
+Manual storage properties are also available for all regular StorageTypes. These storage properties follow the format `StorageProperty.manual[StorageType]()`, and take the following parameters: key (string), initial value, and optional smoothing options (SnapshotBufferOptions).
+
+Smoothing is not available for some StorageTypes, like string, boolean, and integer.
+
+<Tabs>
+<TabItem value="TypeScript">
+
+```ts
+const scoreProp = StorageProperty.manualInt('score', 0);
+
+const nameProp = StorageProperty.manualString('name', 'hello');
+
+const scaleProp = StorageProperty.manualVec3(
+  'scale',
+  this.getTransfrom().getLocalScale(),
+  { interpolationTarget: -0.25 }
+);
+```
+
+</TabItem>
+</Tabs>
+
+#### Custom Manual Storage Property
+
+`StorageProperty.manual()` can be used to configure your own manual storage property, by passing in a property name (string), StorageType, initial value, and optional smoothing options (SnapshotBufferOptions).
+
+<Tabs>
+<TabItem value="TypeScript">
+
+```ts
+const matrixProp = StorageProperty.manual(
+  'matrix',
+  StorageTypes.mat4,
+  mat4.identity()
+);
+```
+
+</TabItem>
+</Tabs>
+
+### Setting Storage Property Values
+
+Manual storage properties can be updated by calling `StorageProperty.setPendingValue()`. In order to have the value sent to the network, the storage property must be modifiable, meaning the SyncEntity’s store is [unowned or owned](./sync-entity#ownership) by the user who is setting it.
+
+:::info
+Storage property updates are sent to the server in the LateUpdate event.
+:::
+
+<Tabs>
+<TabItem value="TypeScript">
+
+```ts
+const scoreProp = StorageProperty.manualInt('score', 0);
+
+scoreProp.setPendingValue(3);
+
+const textProp = StorageProperty.manualString('myText', '');
+
+textProp.setPendingValue('new text!');
+```
+
+</TabItem>
+</Tabs>
+
+In some rare situations, you might want to immediately set the current value of the property without waiting until end of frame, or going through the pending loop. You can do this by calling `StorageProperty.setValueImmediate()` and passing in its `SyncEntity.currentStore` and the new value. Only use this if you are confident that you have permission to change the store, for example after checking `SyncEntity.canIModifyStore()`.
+
+<Tabs>
+<TabItem value="TypeScript">
+
+```ts
+scoreProp.setValueImmediate(this.syncEntity.currentStore, -1);
+```
+
+</TabItem>
+</Tabs>
+
+### Getting Storage Property Values
+
+There are three ways to access the value of a storage property: `StorageProperty.currentValue`, `StorageProperty.pendingValue`, and `StorageProperty.currentOrPendingValue`.
+
+#### CurrentValue
+
+`StorageProperty.currentValue` is the value currently stored on the server and expected to be synced across the network. `StorageProperty.currentValue` is updated only after the value has been updated on the backend.
+
+#### PendingValue
+
+`StorageProperty.pendingValue` is the local value that will potentially be sent to the backend, but not necessarily. This can be useful if you want your own local value distinct from the network value. For example, you may want to simulate state on an object while you wait for an update from the owner. It is also useful if you want to access the locally changed value of a storage property in the time before it is sent to the server during LateUpdate.
+
+`StorageProperty.pendingValue` is only sent to the server if the SyncEntity can be modified (i.e., the SyncEntity is unowned or owned by the local user).
+
+#### CurrentOrPendingValue
+
+`StorageProperty.currentOrPendingValue` can be either the currentValue or the pendingValue, depending on which was set most recently. This is useful if you just want to use whichever value was updated last and do not need to care about where it came from.
+
+When accessing a storage property value from a `SyncEntity.notifyOnReady()` callback, use `StorageProperty.currentOrPendingValue`. For the first user to join the session `StorageProperty.currentValue` may return `null` because the value has not yet been updated on the backend.
+
+### Reacting to Storage Property changes
+
+Storage properties have events that fire when their values change, depending on who made the change.
+
+#### OnAnyChange
+
+The `StorageProperty.onAnyChange` event occurs when any user has changed the `StorageProperty.currentValue` of the storage property.
+
+<Tabs>
+<TabItem value="TypeScript">
+
+```ts
+scoreProp.onAnyChange.add((newValue: number, oldValue: number) => {
+  print('Current value changed from ' + oldValue + ' to ' + newValue);
+});
+```
+
+</TabItem>
+</Tabs>
+
+#### OnLocalChange
+
+The `StorageProperty.onLocalChange` event occurs when the `StorageProperty.currentValue` has been changed by the local user.
+
+<Tabs>
+<TabItem value="TypeScript">
+
+```ts
+scoreProp.onLocalChange.add((newValue: number, oldValue: number) => {
+  print(
+    'I changed the current value changed from ' + oldValue + ' to ' + newValue
+  );
+});
+```
+
+</TabItem>
+</Tabs>
+
+#### OnRemoteChange
+
+The `StorageProperty.onRemoteChange` event occurs when the `StorageProperty.currentValue` has been changed by another user.
+
+<Tabs>
+<TabItem value="TypeScript">
+
+```ts
+scoreProp.onRemoteChange.add((newValue: number, oldValue: number) => {
+  print(
+    'Someone else changed the current value changed from ' +
+      oldValue +
+      ' to ' +
+      newValue
+  );
+});
+```
+
+</TabItem>
+</Tabs>
+
+#### OnPendingValueChange
+
+Use the `StorageProperty.onPendingValueChange` event to be notified whenever the `StorageProperty.pendingValue` is changed. This is useful in cases where send rate limits are enabled on the property, and you would like to react to local changes before they are sent out to the network.
+
+<Tabs>
+<TabItem value="TypeScript">
+
+```ts
+scoreProp.onPendingValueChange.add((newValue: number, oldValue: number) => {
+  print(
+    'Someone else changed the current value changed from ' +
+      oldValue +
+      ' to ' +
+      newValue
+  );
+});
+```
+
+</TabItem>
+</Tabs>
+
+### Automatic Storage Properties
+
+Automatic storage properties can be used to automatically update component and asset properties, such as position, rotation, scale, text, and base color. Automatic storage properties are given `getter` and `setter` functions that automatically read and write to an external target. They are meant to be added to a SyncEntity and forgotten about.
+
+For example, a storage property for `localPosition` automatically reads from `Transform.getLocalPosition()` to check the current local value, and writes to `Transform.setLocalPosition()` when receiving a network value. You can add the storage property to the object’s SyncEntity, and the local position is automatically kept synchronized.
+
+You can either use built-in automatic storage properties, or create your own.
+
+#### Autmomatic Transform, Position, Rotation, and scale
+
+For transform-related automatic properties, you need to pass in the PropertyType:
+
+- `PropertyType.Local`: Synced relative to the scene object’s parent’s coordinate space.
+- `PropertyType.Location`: Synced relative to the co-located coordinate space.
+- `PropertyType.World`: Synced relative to Spectacles’ world origin, which is not recommended for colocation.
+
+Here are examples of how to set up automatic storage properties for transform data:
+
+<Tabs>
+<TabItem value="TypeScript">
+
+```ts
+const transform: Transform = this.getTransform();
+const positionType = PropertyType.Local;
+const rotationType = PropertyType.Local;
+const scaleType = PropertyType.Local;
+
+const transformProp = StorageProperty.forTransform(
+  transform,
+  positionType,
+  rotationType,
+  scaleType
+);
+const positionProp = StorageProperty.forPosition(transform, PropertyType.Local);
+const rotationProp = StorageProperty.forRotation(transform, PropertyType.Local);
+const scaleProp = StorageProperty.forScale(transform, PropertyType.Local);
+```
+
+</TabItem>
+</Tabs>
+
+#### Automatic Base Color
+
+`StorageProperty.forMeshVisualBaseColor()` automatically syncs the base color of a MaterialMeshVisual. The first parameter is the MaterialMeshVisual, and the second is an optional clone boolean. If clone is true, the material will be cloned and applied back to the visual, which is useful if the material is used in multiple places.
+
+<Tabs>
+<TabItem value="TypeScript">
+
+```ts
+const colorProp = StorageProperty.forMeshVisualBaseColor(visual, false);
+```
+
+</TabItem>
+</Tabs>
+
+#### Automatic Material Property
+
+`StorageProperty.forMaterialProperty()` automatically syncs a Material property of your choice. It expects the following parameters: Material, key (string), and [StorageType](#storage-types).
+
+<Tabs>
+<TabItem value="TypeScript">
+
+```ts
+const materialProp = StorageProperty.forMaterialProperty(
+  material,
+  'propName',
+  StorageTypes.float
+);
+```
+
+</TabItem>
+</Tabs>
+
+#### Automatic Material Mesh Visual
+
+`StorageProperty.forMeshVisualProperty()` automatically syncs a MeshVisual property of your choice. It expects the following parameters: MaterialMeshVisual, property name (string), [StorageType](#storage-types), and an optional clone boolean. If clone is true, the MeshVisual’s material will be cloned and applied back to the visual, which is useful if the material is used in multiple places.
+
+<Tabs>
+<TabItem value="TypeScript">
+
+```ts
+const meshProp = StorageProperty.forMeshVisualProperty(
+  visual,
+  'propName',
+  StorageTypes.float,
+  true
+);
+```
+
+</TabItem>
+</Tabs>
+
+#### Automatic Text
+
+`StorageProperty.forTextText()` automatically syncs the text on a TextComponent. It takes the TextComponent as a parameter.
+
+<Tabs>
+<TabItem value="TypeScript">
+
+```ts
+const textProp = StorageProperty.forTextText(textComponent);
+```
+
+</TabItem>
+</Tabs>
+
+:::warning Auto-properties require a clear owner
+`forTextText` and the other `auto*` StorageProperties poll their underlying value every tick and broadcast whenever it changes. If the SyncEntity has no owner (e.g., constructed with `claimOwnership: false`, or shared via `SyncEntity.getSyncEntityOnSceneObject` from a component like `SyncTransform` that doesn't claim ownership), every device's auto-poll broadcasts and last-write-wins thrashes the value.
+
+Use the canonical pattern from `Examples/StorageProperty/TextStoragePropertyExample.ts`: construct the SyncEntity with `claimOwnership: true`, gate writes on `doIOwnStore()`, and only the owner mutates the underlying `Text.text`. If you need to attach `forTextText` to a *shared* prefab leaf whose SyncEntity is already owned by another component, prefer one-shot `customDataStore` data on the NetworkRoot (see the NameTag recipe in SKILL.md §6.2) or place the text-sync component on a separate child SceneObject with its own claimed SyncEntity. See the §10 pitfall in SKILL.md for the full discussion.
+:::
+
+#### Automatic Storage Types
+
+Automatic storage properties are available for all regular [StorageTypes](#storage-types). These storage properties follow the format `StorageProperty.auto[StorageType]()`, and take the following parameters: key (string), getter (function), setter (function), and optional smoothing options (SnapshotBufferOptions).
+
+<Tabs>
+<TabItem value="TypeScript">
+
+```ts
+const transform: Transform = this.getTransform();
+
+const scaleProp = StorageProperty.autoVec3(
+  'localScale',
+  () => {
+    // getter
+    return transform.getLocalScale();
+  },
+  (val) => {
+    // setter
+    transform.setLocalScale(val);
+  },
+  { interpolationTarget: -0.25 }
+);
+```
+
+</TabItem>
+</Tabs>
+
+#### Custom Automatic Storage Property
+
+`StorageProperty.auto()` can be used to configure your own automatic storage property, by passing in a property name (string), [StorageType](#storage-types), and getter and setter functions, and optional smoothing options (SnapshotBufferOptions).
+
+<Tabs>
+<TabItem value="TypeScript">
+
+```ts
+const transform: Transform = this.getTransform();
+
+const scaleProp = StorageProperty.auto(
+  'localScale',
+  StorageTypes.vec3,
+  () => {
+    // getter
+    return transform.getLocalScale();
+  },
+  (val) => {
+    // setter
+    transform.setLocalScale(val);
+  },
+  { interpolationTarget: -0.25 }
+);
+```
+
+</TabItem>
+</Tabs>
+
+### Limiting Send Rate
+
+Set `StorageProperty.sendsPerSecondLimit` to a value greater than zero to limit how many times per second the property will send updates to the network.
+
+When using this feature, `StorageProperty.currentValue` will only be updated when the value is actually sent to the network. To get the most recent local version of a value, check `StorageProperty.currentOrPendingValue`.
+
+<Tabs>
+<TabItem value="TypeScript">
+
+```ts
+scoreProp.sendsPerSecondLimit = 10;
+```
+
+</TabItem>
+</Tabs>
+
+### Smoothing Property Values
+
+For properties that change very frequently, especially when the send rate is limited, it can be useful to smooth out received values. Otherwise, the result will appear choppy since values are only updated as they are received. When smoothing is enabled, intermediate values are approximated by interpolating between updates. Smoothing is not available for some [StorageTypes](#storage-types), like string, boolean, and integer.
+
+#### SnapshotBufferOptions
+
+Smoothing is configurable using the SnapshotBufferOptions class, which includes the properties below. All properties are optional.
+
+- `SnapshotBufferOptions.interpolationTarget`: Time delta in local seconds to target (default = -0.25)
+- `SnapshotBufferOptions.storageType`: Override the StorageType, if blank the StorageProperty's StorageType will be used
+- `SnapshotBufferOptions.lerpFunc`: Override the function used for interpolating values, if blank one will be chosen based on StorageType
+- `SnapshotBufferOptions.size`: Max number of snapshots stored (default = 20)
+
+<Tabs>
+<TabItem value="TypeScript">
+
+```ts
+private options = new SnapshotBufferOptions();
+this.options.interpolationTarget = -0.25;
+```
+
+</TabItem>
+</Tabs>
+
+Call `StorageProperty.setSmoothing()` to configure smoothing for the property. You can either pass in a SnapshotBufferOptions object, or a JS object with matching properties. Even passing in an empty object like `{}` is enough to enable smoothing.
+
+<Tabs>
+<TabItem value="TypeScript">
+
+```ts
+scoreProp.setSmoothing({ interpolationTarget: -0.25 });
+```
+
+</TabItem>
+</Tabs>
+
+You can pass in SnapshotBufferOptions as an optional third parameter when constructing a StorageProperty.
+
+<Tabs>
+<TabItem value="TypeScript">
+
+```ts
+private prop = StorageProperty('prop', StorageTypes.float, {
+    interpolationTarget: -0.25,
+});
+```
+
+</TabItem>
+</Tabs>
+
+SnapshotBufferOptions can also be passed into automatic and manual StorageProperty constructors that support smoothing.
+
+<Tabs>
+<TabItem value="TypeScript">
+
+```ts
+const prop = StorageProperty.forPosition(transform, true, {
+  interpolationTarget: -0.25,
+});
+
+const otherProp = StorageProperty.manualFloat('myFloat', 0, {
+  interpolationTarget: -0.25,
+});
+```
+
+</TabItem>
+</Tabs>
+
+### Storage Types
+
+- `StorageTypes.bool`
+- `StorageTypes.float`
+- `StorageTypes.double`
+- `StorageTypes.int`
+- `StorageTypes.string`
+- `StorageTypes.vec2`
+- `StorageTypes.vec3`
+- `StorageTypes.vec4`
+- `StorageTypes.quat`
+- `StorageTypes.mat2`
+- `StorageTypes.mat3`
+- `StorageTypes.mat4`
+- `StorageTypes.boolArray`
+- `StorageTypes.floatArray`
+- `StorageTypes.doubleArray`
+- `StorageTypes.intArray`
+- `StorageTypes.stringArray`
+- `StorageTypes.vec2Array`
+- `StorageTypes.vec3Array`
+- `StorageTypes.vec4Array`
+- `StorageTypes.quatArray`
+- `StorageTypes.mat2Array`
+- `StorageTypes.mat3Array`
+- `StorageTypes.mat4Array`
+- `StorageTypes.packedTransform` (same as `StorageTypes.vec4Array`)
+
+### Payload and Rate Limits
+
+Storage Property updates are batched each frame and sent as a single message, which counts against the [payload and message rate limits](./payload-and-rate-limits).
+
+If limits are exceeded in Lens Studio, an error will print in the Logger and the session may disconnect.

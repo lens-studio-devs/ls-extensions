@@ -1,0 +1,23 @@
+{
+  "name": "ls-clad",
+  "displayName": "Lens Studio Agent Toolkit",
+  "version": "1.0.0",
+  "description": "Agent components for Lens Studio - Lens/Editor API reference, scene construction, UI and interaction workflows, AI/cloud integrations, debugging, performance, migration tooling, and LEAF integration testing. Covers Snapchat and Specs (formerly Spectacles) targets, and is more optimized for Specs.",
+  "author": {
+    "name": "Specs Inc. - Lens Studio Team"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "lens-studio",
+    "ar",
+    "snap",
+    "agent-components",
+    "core",
+    "spectacles",
+    "specs",
+    "testing",
+    "leaf"
+  ],
+  "skills": "./skills/",
+  "agents": "./agents/"
+}

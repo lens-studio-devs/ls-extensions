@@ -1,0 +1,74 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# Depth Module
+
+Spectacles offers APIs to retrieve the depth frame – in which the pixels encode the depth of the scene – to better understand and build experiences around the user's real-world environment.
+
+This is an `Experimental` API. Please see [Experimental APIs](https://developers.snap.com/spectacles/permission-privacy/experimental-apis) for more details.
+
+> _The Depth module requires camera access in a Lens which will disable open internet access for that Lens. The depth camera frame contains user information that may not be transmitted outside the Lens. For testing and experimental purposes however, extended permissions are available to access both the camera frame and the open internet at the same time. Note that Lenses built this way may not be released publicly. Please see [Extended Permissions](https://developers.snap.com/spectacles/permission-privacy/extended-permissions) for more information._
+
+## Requesting + Receiving Depth Frames
+
+The `DepthModule` enables developers to set up a `DepthFrameSession` to request a steady stream of `DepthFrameData`.
+
+### Depth Frame Requests
+
+To begin receiving depth frames, construct a `DepthFrameSession` and sign up to the `onNewFrame` event to receive `DepthFrameData`.
+
+The depth computation is started after calling `DepthFrameSession.start` and can be stopped for all event callbacks of this session with `DepthFrameSession.stop`.
+
+For example:
+
+```typescript
+@component
+export class DepthFrameRequest extends BaseScriptComponent {
+  private depthModule: DepthModule = require('LensStudio:DepthModule');
+  private session: DepthFrameSession;
+  private registration: EventRegistration;
+
+  onAwake() {
+    this.createEvent('OnStartEvent').bind(() => {
+      this.session = this.depthModule.createDepthFrameSession();
+      this.registration = this.session.onNewFrame.add(
+        (depthFrameData: DepthFrameData) => {
+          // Process the depth frame data.
+        }
+      );
+      // Start depth estimation to receive depth frame data via the onNewFrame event.
+      this.session.start();
+    });
+
+    this.createEvent('OnDestroyEvent').bind(() => {
+      this.session.onNewFrame.remove(this.registration);
+      // Stop depth estimation for this session.
+      this.session.stop();
+    });
+  }
+}
+```
+
+> `createDepthFrameSession` may not be invoked inside the `onAwake` event.
+
+### Getting Depth Camera Information
+
+On Spectacles '24, depth is estimated based on transformed frames of the left color camera. To understand how the depth camera transforms 3D space into 2D space, `DepthFrameData` provides information about the `DeviceCamera`. In addition, the timestamp of the frame is provided in order to be able to synchronize depth frames with the color frames provided by the `CameraModule`.
+
+```typescript
+this.session.onNewFrame.add((depthFrameData: DepthFrameData) => {
+  const depthDeviceCamera = depthFrameData.deviceCamera;
+  print(depthDeviceCamera.resolution);
+  print(depthDeviceCamera.focalLength);
+  print(depthDeviceCamera.principalPoint);
+  print(depthDeviceCamera.pose); // The relative offset between a reference point on the device and the camera
+  print(depthFrameData.toWorldTrackingOriginFromDeviceRef); // The pose of the device reference relative to the frame of reference of the tracked device position.
+  print(depthFrameData.timestampSeconds); // The timestamp of the depth frame can be used to find the matching color frame used for estimating depth.
+});
+```
+
+Additionally, `DeviceCamera` includes `project` and `unproject` methods that makes it easier to convert 3D points into 2D points and vice versa.
+
+For the full pixel-sampling + back-projection code example, see the **Full Component** in `SKILL.md`.

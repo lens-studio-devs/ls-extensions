@@ -1,0 +1,16 @@
+{
+  "name": "ls-extensions",
+  "owner": {
+    "name": "Specs Inc. — Lens Studio Team"
+  },
+  "description": "AI components for AR and XR Development in Lens Studio",
+  "version": "1.0.0",
+  "plugins": [
+    {
+      "name": "ls-clad",
+      "description": "Agents, skills, and tools for CLAD: Closed Loop Agentic Development using Lens Studio – encompassing Lens and Editor API scripting, prototyping, design, testing, validation, optimization, debugging, and publishing.",
+      "version": "1.0.0",
+      "source": "./plugins/ls-clad"
+    }
+  ]
+}

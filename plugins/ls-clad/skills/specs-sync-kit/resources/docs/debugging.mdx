@@ -1,0 +1,44 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# Debugging
+
+> Upstream docs for figures and diagrams: [Debugging](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/features/debugging).
+
+Spectacles Sync Kit and Lens Studio provide a number of tools to help debug Connected Lenses on device and in the editor. For more information on Lens Studio Connected Lenses features, including the Connected Lenses Monitor and Multiple Previews, see [Connected Lenses > Development Workflow](../../../../lens-studio/features/connected-lenses/development-workflow).
+
+### SyncEntityDebug
+
+SyncEntityDebug is a helper script that can show SyncEntity information using text components. It is especially useful for debugging SyncEntities on device. SyncEntity information that can be shown by the SyncEntityDebug script includes:
+
+- Network ID
+- Owner Display Name
+- Owner ID
+- Storage Properties
+
+#### Setup Steps
+
+> See [Setup Steps](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/features/debugging#setup-steps) in the upstream docs for diagrams.
+
+To use the SyncEntityDebug in your scene, follow these steps:
+
+1. Add text components in the Scene Hierarchy for each piece of SyncEntity information you want to debug.
+
+2. Add the SyncEntityDebug script to a scene object in the Scene Hierarchy. Populate the relevant text component inputs in the SyncEntityDebug script Inspector panel. You do not have to populate all inputs.
+
+3. For **Target Type**, use Network Root if you are using SyncEntityDebug script within a prefab. Otherwise, set Target Type to Sync Entity, and populate the **Sync Entity Script** input with the script that the SyncEntity is associated with.
+
+4. The Ownership Button can be populated with an [SIK Pinch Button](https://developers.snap.com/lens-studio/api/lens-scripting/classes/Packages_SpectaclesInteractionKit_Components_UI_PinchButton_PinchButton.PinchButton.html), which will clear ownership of the SyncEntity when pinched.
+
+Once the SyncEntityDebug is set up, the text components will update to reflect SyncEntity information in the Preview panel and on Spectacles when pushed to device.
+
+### Runtime-preview MCP tools require two separate installs
+
+Runtime-preview MCP tools (`QueryRuntimeSceneTool`, `CaptureRuntimeViewTool`, `PreviewInteractTool`) require BOTH a lens-project package install AND a Lens-Studio-app ChatTool plugin. Symptom: an agent calling these tools gets `No such tool available: mcp__lens-studio__QueryRuntimeSceneTool` (Claude-form symptom; other runtimes word it differently) even after installing the agent packages in the project. Cause: two separate install surfaces.
+
+- **(a)** Lens project must have `AiPreviewAgentInspect.lspkg` + `AiPreviewAgentInteract.lspkg` in `Packages/`, with `AgentInspectScript` and `AgentInteractScript` ScriptComponents attached to a SceneObject (commonly named `AgentBridge` at scene root so it survives iteration). Install via the `InstallLensStudioPackage` MCP tool pointing at `~/Library/Preferences/Snap/Lens Studio Internal/LibraryComponents/AiPreviewAgent*.lspkg`.
+- **(b)** Lens Studio app must have a matching ChatTool plugin exposing the runtime tool endpoints. Current LS-Internal builds ship `[ChatTool] Preview Testing` (exposes `PreviewPanelTool` / `MovePreviewCamera`) but the runtime-trio-exposing ChatTool plugin appears gated to newer LS-Internal channels.
+
+Fallback when (b) isn't available: `CapturePanelScreenshotTool(pluginId: "Snap.Plugin.Gui.PreviewPanel")` + `scene-graphql` (editor-side scene tree) + `RunAndCollectLogsTool` covers visual + structural + log-based verification. The `/verify-preview` skill's verifier-agent definition lists the runtime trio in its toolset; document this fallback so the verifier degrades gracefully rather than reporting a generic "tool failure."

@@ -1,0 +1,33 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# Helper Scripts
+
+> Upstream docs for figures and diagrams: [Helper Scripts](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/features/helper-scripts).
+
+Helper scripts are not SyncEntities, meaning they do not sync data but run locally like any normal script. They are designed to work with SyncEntities and help with common synchronization needs.
+
+### DisplayStorageProperty
+
+> See [DisplayStorageProperty](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/features/helper-scripts#displaystorageproperty) in the upstream docs for diagrams.
+
+The DisplayStorageProperty helper displays a [storage property](./storage-properties) value found on the specified [SyncEntity](./sync-entity). This can be useful either as a UI helper or a debugging tool.
+
+- The **Property Key** should match the one being used by the storage property.
+- **Text** is the Text component that will display the value text.
+- If **Use Format** is enabled, a formatting string can be specified instead of displaying the value directly.
+- **Alt Text** will be displayed if the value is undefined, such as before the session has connected or the storage property has not been defined yet.
+
+### SetEnabledIfOwner
+
+> See [SetEnabledIfOwner](https://developers.snap.com/spectacles/spectacles-frameworks/spectacles-sync-kit/features/helper-scripts#setenabledifowner) in the upstream docs for diagrams.
+
+The SetEnabledIfOwner helper enables and disables scene objects based on the target [SyncEntity](./sync-entity) or [instantiated object's](./prefab-instantiation) ownership state.
+
+**Entity Target** can either be a Network Root, for use inside of prefabs link, or a SyncEntity. If Network Root is selected, this script will automatically find its network root upon instantiation.
+
+Whenever the Entity Target becomes owned by the current user (or starts that way), each object in **Owner Objects** will be enabled, and each object in **Non Owner Objects** will be disabled.
+
+Whenever the Entity Target becomes not owned by the current user (or starts that way), each object in **Owner Objects** will be disabled, and each object in **Non Owner Objects** will be enabled.

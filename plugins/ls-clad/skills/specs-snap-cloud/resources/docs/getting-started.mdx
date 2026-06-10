@@ -1,0 +1,164 @@
+{/*
+Copyright 2026 Specs Inc.
+SPDX-License-Identifier: Apache-2.0
+*/}
+
+# Getting Started
+
+This guide will show you how to set up any Lens to access a [Snap Cloud] backend. We'll run through configuring a project and authenticating users. After progressing through this guide, learn how to configure and access a simple database through the [Databases](https://developers.snap.com/spectacles/about-spectacles-features/snap-cloud/databases) guide.
+
+For full reference documentation refer to the [Snap Cloud documentation site](https://cloud.snap.com/docs).
+
+> The upstream page at [developers.snap.com](https://developers.snap.com/spectacles/about-spectacles-features/snap-cloud/getting-started) includes step-by-step screenshots of the Asset Library, Window menu, Supabase Plugin login, project listing, and Import Credentials flow that are referenced below.
+
+**Alpha**
+
+[Snap Cloud] powered by Supabase is currently in alpha.
+[Apply for the alpha program](https://snap-ar.com/SnapCloudApplication) to access [Snap Cloud] for your Spectacles projects.
+
+## Install the Supabase Asset and Supabase Plugin
+
+Go to the Asset Library to install both the SupabaseClient and the Supabase Plugin. The SupabaseClient provides the [supabase-js](https://github.com/supabase/supabase-js) client library, configured for Lens Studio. This is the library used to make calls to your Supabase backends. The Supabase Plugin provides a convenient interface to manage your projects.
+
+Open the Supabase Plugin under the Window menu item. The plugin lists all your projects and provide options to create new projects, open the Supabase dashboard, and more.
+
+When you first open the Supabase Plugin you will need to Login if you have not done so already.
+
+Make sure your account has finished [email verification](https://help.snapchat.com/hc/en-us/articles/7012350653460-How-do-I-change-or-verify-my-email-address-on-Snapchat) before this step.
+
+## Create a New Project
+
+If you have no organizations (e.g. first time running Supabase) and no projects, a default organization will be created for you. If you have more than one organization, you will see each in the drop-down combo box.
+
+You can click the `Create a New Project` button to start a new project. Input a project name and database password.
+
+It may take a minute for the newly created project to be initialized.
+
+## Start developing your Lens
+
+### Connect your Lens to Supabase
+
+Add the `SupabaseClient` asset (which you installed earlier from the Asset Library) into your Lens project.
+
+Now we'll create a simple script that will authenticate the user of your Lens with Supabase. To use the Supabase client library:
+
+1. Import the library: `import { createClient, SupabaseClient } from 'SupabaseClient.lspkg/supabase-snapcloud'`.
+2. Create a Supabase Project asset by clicking the `Import Credentials` button (in the Supabase Plugin) under project you'd like to use.
+3. Add the Supabase Project to your script. Create an input `@input supabaseProject: SupabaseProject`, then drag the Supabase Project asset you just created into the script's input field.
+
+4. Finally, in your script invoke `createClient(this.supabaseProject.url, this.supabaseProject.publicToken)` to create the client-side interface that you'll use to invoke all Supabase commands.
+
+Once you've created the client, you can login your user by calling `this.client.auth.signInWithIdToken({});`
+
+The following script shows this in full:
+
+```ts
+import {
+  createClient,
+  SupabaseClient,
+} from 'SupabaseClient.lspkg/supabase-snapcloud';
+
+@component
+export class MyComponent extends BaseScriptComponent {
+  @input
+  supabaseProject: SupabaseProject;
+
+  private client: SupabaseClient;
+  private uid;
+
+  onAwake() {
+    this.createEvent('OnStartEvent').bind(() => {
+      this.onStart();
+    });
+  }
+
+  onStart() {
+    this.initSupabase();
+  }
+
+  async initSupabase() {
+    print('Initializing Supabase client...');
+    print('Project URL: ' + this.supabaseProject.url);
+
+    const options = {
+      realtime: {
+        // Temporary fix due to a known alpha limitation, set the heartbeatIntervalMs to 2500
+        heartbeatIntervalMs: 2500,
+      },
+    };
+
+    this.client = createClient(
+      this.supabaseProject.url,
+      this.supabaseProject.publicToken,
+      options
+    );
+
+    if (this.client) {
+      print('Supabase client created successfully');
+      await this.signInUser();
+    } else {
+      print('Failed to create Supabase client');
+    }
+  }
+
+  async signInUser() {
+    print('Attempting to sign in...');
+
+    const { data, error } = await this.client.auth.signInWithIdToken({
+      provider: 'snapchat',
+      token: '',
+    });
+
+    if (error) {
+      print('Sign in FAILED: ' + JSON.stringify(error));
+      return;
+    }
+
+    if (data && data.user) {
+      const { user, session } = data;
+      this.uid = JSON.stringify(user.id).replace(/^"(.*)"$/, '$1');
+
+      print('Sign in SUCCESS!');
+      print('User ID: ' + this.uid);
+      print('User Email: ' + (user.email || 'N/A'));
+
+      if (session) {
+        print('Session Active: YES');
+        print(
+          'Access Token (first 20 chars): ' +
+            session.access_token.substring(0, 20) +
+            '...'
+        );
+        print('Token Type: ' + session.token_type);
+        print(
+          'Expires At: ' + new Date(session.expires_at * 1000).toISOString()
+        );
+      } else {
+        print('Session: No session data');
+      }
+
+      print('Authentication verified and ready!');
+    } else {
+      print('Sign in completed but no user data returned');
+    }
+  }
+
+  onDestroy() {
+    if (this.client) {
+      this.client.removeAllChannels();
+    }
+  }
+}
+```
+## Sample Projects
+
+To help you get started quickly, we've created [Snap Cloud Sample Project](https://github.com/Snapchat/Spectacles-Sample/tree/main/Snap%20Cloud) that demonstrate common integration patterns. You can access these samples by:
+
+- Downloading from the GitHub repository
+- Finding them directly in Lens Studio's Home Page
+
+The sample includes complete working examples with step-by-step setup instructions. Once you have a sample project open in Lens Studio, simply import your Supabase project credentials as described above to get started.
+
+From here you can explore how to configure and access your first [Database](https://developers.snap.com/spectacles/about-spectacles-features/snap-cloud/databases). Or, to see the full documentation for all you can do with [Snap Cloud], refer to the [Snap Cloud documentation site](https://cloud.snap.com/docs).
+
+[Snap Cloud]: https://cloud.snap.com/
