@@ -13,7 +13,7 @@ Consumer-side workflows: installing packages from the Asset Library, unpacking t
 |------|---------|
 | Install a package from the Asset Library | [Install](#install-from-the-asset-library) |
 | Open a `.lsc` / `.lspkg` so assets become editable | [Unpack](#unpack) |
-| Reconcile mismatched dependency versions across installed packages | [Sync versions](#sync-versions) |
+| Pull available Asset Library updates for installed packages | [Pull updates](#pull-updates) |
 | Understand what runs when a package is dropped into the scene | [Setup scripts from a consumer's perspective](#setup-scripts-from-a-consumers-perspective) |
 | Read the setup script of an existing package | [Reading an existing setup script](#reading-an-existing-setup-script) |
 | Read source files (`.ts`/`.js`/textures/prefabs) inside a packed package without unpacking | [Reading files inside a packed package](#reading-files-inside-a-packed-package) |
@@ -48,28 +48,45 @@ After unpack: `Packages/<name>.<ext>` disappears and `Assets/<name>.<ext>/` appe
 
 ---
 
-## Sync versions
+## Pull updates
 
-When several installed packages declare the same dependency at different versions, `IPackageRegistry.syncVersions()` reconciles them by upgrading/downgrading packages to a consistent set. This mirrors the **Sync Version** button in the Package Manager (under the installed-dependencies list).
+For task-level "update my packages" requests, use the
+[`update-lens-packages`](../../update-lens-packages/SKILL.md) skill. It lists installed
+packages, checks `canPullUpdate`, calls `pullUpdate(desc)` for selected packages, and
+verifies the resulting versions.
+
+For a focused consumer-side update, snapshot package descriptors first, then call
+`pullUpdate` on the target descriptor. Snapshotting avoids iterating over the live assets
+collection while the update mutates package assets.
 
 ```javascript
 const registry = pluginSystem.findInterface(
   Editor.IPackageRegistry.interfaceId
-) as any;   // `syncVersions` is not yet declared on IPackageRegistry in the shipped editor.d.ts; drop the cast once it lands
-registry.syncVersions();
+) as Editor.IPackageRegistry;
+const model = pluginSystem.findInterface(Editor.Model.IModel.interfaceId);
+
+const descriptors: Editor.Assets.NativePackageDescriptor[] = [];
+for (const asset of model.project.assetManager.assets) {
+  if (asset.getTypeName() === "NativePackageDescriptor") {
+    descriptors.push(asset as Editor.Assets.NativePackageDescriptor);
+  }
+}
+
+for (const desc of descriptors) {
+  if (desc.packageName === "<PACKAGE_NAME>" && registry.canPullUpdate(desc)) {
+    registry.pullUpdate(desc);
+  }
+}
 ```
 
-**What it does** (verified empirically — starting state SIK 0.9.0 + UIKit 0.1.4):
-
-- **Upgrades or downgrades** an installed package to whatever version the dependency graph deems consistent — direction depends on what other installed packages require (UIKit 0.1.4 → 0.1.7 in this example, but a downgrade is possible when a dependent pins an older version).
-- **Adds the pinned dependency** if missing (UIKit 0.1.7's manifest required SIK 0.17.3 → that version was installed alongside).
-- **Does not remove** the prior copies — SIK 0.9.0 remained loaded next to the new SIK 0.17.3. Cleanup of stale versions is the caller's responsibility.
-
-**Currently scoped to Asset-Library packages.** Reconciliation only fires for packages whose dependency graph is declared via a `package_dependencies.json` shipped in the Asset Library resource description. Local-library packages will be supported in a future Lens Studio release; until then the call is a no-op for them — and likewise a no-op for resources predating the manifest (e.g. SIK 0.18.x + UIKit 0.1.7 already match what UIKit 0.1.7's manifest expects, so `syncVersions()` returned in ~1ms without changing the installed set).
-
-Run it after installing a package that pulls in shared dependencies (e.g. SpectaclesUIKit, which depends on SpectaclesInteractionKit) to align the dependency to the version UIKit was shipped against. Safe to call defensively — it returns silently when nothing needs syncing.
-
-> **Updating libraries?** For the task-level "update my packages" workflow — per-package `pullUpdate` with a version-pinning alternative — use the [`update-lens-packages`](../../update-lens-packages/SKILL.md) skill.
+Replace `<PACKAGE_NAME>` with the package to update. `pullUpdate` is synchronous/blocking
+but may take time while package assets are downloaded and updated, so use a longer
+`ExecuteEditorCode` timeout (typically `timeoutMs: 300000`) for pull-update calls that
+may hit the Asset Library. Re-list installed packages after the call returns and report
+the old/new versions. Do not add task-manager waits or polling for `pullUpdate` itself.
+If `canPullUpdate(desc)` is `false`, the installed package is already current for the
+available Asset Library candidate, or a specific version must be selected from the Asset
+Library instead.
 
 ---
 

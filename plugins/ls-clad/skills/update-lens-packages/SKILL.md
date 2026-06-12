@@ -56,17 +56,26 @@ Present the results to the user. Highlight any packages where `canPullUpdate` is
 
 For each package the user wants to update (or all updatable ones if they said "update everything"), run `pullUpdate`:
 
+Set `timeoutMs` on the `ExecuteEditorCode` call to `300000` when running the update
+loop. `pullUpdate` is synchronous/blocking, and each call may download from the Asset
+Library before returning; the default 30s timeout can be too short for several packages
+or slow connections.
+
 ```typescript
 const registry = pluginSystem.findInterface(Editor.IPackageRegistry.interfaceId) as Editor.IPackageRegistry;
 const model = pluginSystem.findInterface(Editor.Model.IModel.interfaceId) as Editor.Model.IModel;
 const allAssets = model.project.assetManager.assets;
 
+const descriptors: Editor.Assets.NativePackageDescriptor[] = [];
 for (const asset of allAssets) {
   if (asset.getTypeName() === "NativePackageDescriptor") {
-    const desc = asset as Editor.Assets.NativePackageDescriptor;
-    if (desc.packageName === "<PACKAGE_NAME>" && registry.canPullUpdate(desc)) {
-      registry.pullUpdate(desc);
-    }
+    descriptors.push(asset as Editor.Assets.NativePackageDescriptor);
+  }
+}
+
+for (const desc of descriptors) {
+  if (desc.packageName === "<PACKAGE_NAME>" && registry.canPullUpdate(desc)) {
+    registry.pullUpdate(desc);
   }
 }
 return "done";
@@ -173,5 +182,5 @@ Replace `<VERSION_STRING>` with a substring that uniquely matches the desired ve
 
 - This skill requires the Lens Studio MCP connection (the `ExecuteEditorCode` MCP tool — tool naming, deferred schemas, and ask/spawn semantics: see `lens-studio-field-notes` Hard Rule 2 / Cross-runtime orchestration). If the tool isn't available, the user needs to have Lens Studio open with the project loaded.
 - Asset Library searches require the user to be logged into their Snapchat account in Lens Studio. If searches fail with gRPC errors, suggest they log in via Menu Bar > My Lenses > Login.
-- `pullUpdate` is synchronous and fast. `selectVersionFromAssetLibrary` may take longer as it downloads from the CDN.
+- `pullUpdate` is synchronous/blocking, but it may take time while package assets are downloaded and updated. Use a longer `ExecuteEditorCode` timeout (typically `timeoutMs: 300000`) for update loops. Do not add task-manager waits or polling for `pullUpdate` itself; verify by re-listing packages after the call returns. `selectVersionFromAssetLibrary` may take longer as it downloads from the CDN.
 - Always verify updates by re-listing packages after the update completes.
