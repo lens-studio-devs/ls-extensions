@@ -187,62 +187,45 @@ Tell the user, then stop and yield control:
 
 Do not continue past this point in the current session.
 
-### 2. Sync All Packages to Compatible Versions
+### 2. Update All Packages with Pull Update
 
 With the project now on the latest Lens Studio version (and the editor restarted so MCP
-tools are available), bring every installed package to a version compatible with the new
-editor. Newer package versions may already include SPECS 27 API support and can reduce
+tools are available), bring every installed package to the latest available Asset Library
+version. Newer package versions may already include SPECS 27 API support and can reduce
 the number of code changes needed in later steps.
 
 **This step requires a running Lens Studio MCP connection** (the `ExecuteEditorCode` MCP tool).
 If the tools are still not present, the user has not yet restarted their editor — stop and
 remind them.
 
-Use the `packageRegistry.syncVersions()` API. It walks the whole installed package set
-and **resolves a mutually-compatible version for every package** given their
-cross-package dependency constraints — if package A depends on `C@2` and package B's
-latest depends on `C@3`, the resolver picks an older B that still depends on `C@2` so
-A keeps working. This is the meaningful difference from a naive "loop `pullUpdate` per
-package" workflow: that bumps each package to its independent latest and can leave the
-graph inconsistent.
+Use the [`update-lens-packages`](../update-lens-packages/SKILL.md) skill and tell it to
+update all updatable packages. That skill uses the supported pull-update flow:
 
-**Critical: `syncVersions()` is fire-and-forget / asynchronous.** It dispatches all the
-upgrades and returns `undefined` immediately. The actual downloads and descriptor updates
-happen in the background and can take tens of seconds. A naïve `before = listPackages();
-syncVersions(); after = listPackages();` in a single synchronous block will show **no
-changes** — the work hasn't completed yet.
+1. list installed `NativePackageDescriptor` assets;
+2. check `registry.canPullUpdate(desc)`;
+3. call `registry.pullUpdate(desc)` for each selected package;
+4. re-list installed packages and report old/new versions.
 
-#### Sync with bounded polling
-
-Run the snippet from `references/sync-packages.md` in one `ExecuteEditorCode` call. It
-snapshots `before`, fires `syncVersions()`, seeds `last` from the pre-sync snapshot, then
-polls until the asset state has been stable for a few consecutive ticks (or hits a hard
-timeout), using these bounds:
-
-| Constant | Value | Role |
-|---|---|---|
-| `POLL_MS` | `1000` | poll interval |
-| `SETTLE_TICKS` | `10` | consecutive identical snapshots **after** a change = settled |
-| `NO_CHANGE_GRACE_MS` | `45_000` | if NOTHING ever changes, only treat as a no-op after this |
-| `MAX_WAIT_MS` | `180_000` | hard ceiling |
-
-Set `timeoutMs` on the `ExecuteEditorCode` call to at least `200_000` so the poll loop
-(up to `MAX_WAIT_MS`) has headroom.
+If you need an inline fallback instead of invoking the skill, run
+`references/pull-update-packages.md` in one `ExecuteEditorCode` call. It mirrors the same
+`canPullUpdate` / `pullUpdate(desc)` workflow for all updatable packages. Set
+`timeoutMs` on that `ExecuteEditorCode` call to `300000`; the loop is synchronous and
+blocking, but multiple Asset Library downloads can exceed the default timeout.
 
 Notes:
 
-- `syncVersions()` is a zero-arg native method on `IPackageRegistry`. It may not appear
-  in `editor.d.ts` on older editor builds — cast the interface to `any` to call it.
-- It may already have been invoked automatically when the editor loaded the upgraded
-  project. If `before` already matches `after`, the call was a no-op.
-- The stop condition is **stability** (snapshot stops changing). `canPullUpdate` on each
-  package is informational, not a pass/fail signal:
-  - `false` after settle — no newer version exists for this package.
-  - `true` after settle — a newer version exists in the registry, but the resolver
-    deliberately picked the current version because pulling the newer one would
-    break cross-package compatibility. This is the resolver doing its job; it is
-    **not** stuck or failed. Going past it with `pullUpdate(desc)` or
-    `selectVersionFromAssetLibrary` may break the package graph.
+- `pullUpdate` updates a package to the most recent version available in the Asset
+  Library. It is synchronous/blocking but may take time while package assets are
+  downloaded and updated: use a longer `ExecuteEditorCode` timeout (typically
+  `timeoutMs: 300000`) for update loops, but do not add task-manager waits or polling
+  for `pullUpdate` itself. Re-list packages after the call returns to verify the update.
+  If a specific version is required, use the version-selection workflow in the
+  `update-lens-packages` skill instead of blindly pulling latest.
+- If `before` already matches `after`, everything was already up to date for the
+  available pull-update candidates.
+- If `canPullUpdate` remains `true` after an update attempt, report it as a package that
+  still advertises an available pull update and continue only after noting the risk to
+  the user.
 - Package renames between versions are common (e.g., "Remote Service Gateway" →
   "RemoteServiceGateway", "Spectacles 3D Hand Hints" → "Spectacles3DHandHints"). After
   the rename, the registry may install the new descriptor alongside the legacy-named
@@ -328,8 +311,9 @@ searches in parallel and record every file + line that matches.
 
 **Scope: skip matches inside `.lspkg/` directories.** Anything under
 `Assets/<Package>.lspkg/` is package-internal code maintained by the package author and
-already migrated by `syncVersions()` in Step 2. Hits there are not lens-level dependencies
-and do not need user-facing fixes. Concretely, exclude `.lspkg/` from every grep, e.g.:
+already handled by the package update in Step 2. Hits there are not lens-level
+dependencies and do not need user-facing fixes. Concretely, exclude `.lspkg/` from every
+grep, e.g.:
 
 ```bash
 grep -rn "<Pattern>" Assets --include="*.ts" --include="*.js" \
