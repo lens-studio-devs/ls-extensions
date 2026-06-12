@@ -72,7 +72,7 @@ const desc = descMeta.primaryAsset as Editor.Assets.NativePackageDescriptor;
 - `Editor.Model.AssetManager.getFileMeta`, `.unpack`, `.createPackage`, `.importExternalFileAsync`, `.createNativeAsset` (not for md/script)
 - `Editor.Model.AssetImportMetadata` — `primaryAsset`, `sourcePath`, `assetTreePath`, `isPackageRoot`, `packagePolicy`, `getNativePackageItems`
 - `Editor.IPackageActions.exportScript`, `.exportPackage`, `.exportAsZip`
-- `Editor.IPackageRegistry.canPullUpdate`, `.pullUpdate`, `.pushUpdate`, `.packageMetadata`, `.syncVersions` (reconcile dependency versions across installed packages — see [`references/consuming.md`](references/consuming.md#sync-versions))
+- `Editor.IPackageRegistry.canPullUpdate`, `.pullUpdate`, `.pushUpdate`, `.packageMetadata` (for task-level package updates, use the [`update-lens-packages`](../update-lens-packages/SKILL.md) skill)
 - `Editor.Assets.NativePackageDescriptor` — `version`, `readMe`, `setupScript`, `tags`, `icon`, `attachments`, `description`, `packageName`
 - `Editor.Assets.ScriptAsset` — `version`, `readMe`, `declarationFile`, `attachments`
 - `Editor.Assets.JavaScriptAsset` / `Editor.Assets.TypeScriptAsset` (subclasses of `ScriptAsset`) — additionally expose `scriptInputInfo`

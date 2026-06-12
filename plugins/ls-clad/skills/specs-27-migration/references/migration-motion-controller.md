@@ -18,7 +18,7 @@ and notify users when no motion controller is connected.
 **Always filter out matches inside `.lspkg/` directories** — those are package-internal
 uses (most commonly SIK's `Assets/SpectaclesInteractionKit.lspkg/Providers/MobileInputData/`)
 and do not represent a lens-level dependency on a motion controller. The package owns its
-own migration via `syncVersions()` in Step 2.
+own migration through the package update in Step 2.
 
 ```bash
 grep -rn "MotionController" Assets --include="*.ts" --include="*.js" \
