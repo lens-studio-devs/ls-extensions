@@ -17,7 +17,7 @@ For more CLAD documentation, see [developers.specs.com/docs/clad](https://develo
 **Marketplace:**
 
 ```
-/plugin marketplace add git@github.com:lens-studio-devs/ls-extensions.git
+/plugin marketplace add https://github.com/lens-studio-devs/ls-extensions.git
 /plugin install ls-clad@ls-extensions
 ```
 
@@ -26,7 +26,7 @@ You can also do this through the Claude Code terminal UI by opening the plugin f
 **Local clone:**
 
 ```
-git clone git@github.com:lens-studio-devs/ls-extensions.git
+git clone https://github.com/lens-studio-devs/ls-extensions.git
 /plugin marketplace add /absolute/path/to/ls-extensions
 /plugin install ls-clad@ls-extensions
 ```
@@ -38,13 +38,13 @@ Codex installs are marketplace-based. You can add this repository directly from 
 **Add from git:**
 
 ```sh
-codex plugin marketplace add git@github.com:lens-studio-devs/ls-extensions.git
+codex plugin marketplace add https://github.com/lens-studio-devs/ls-extensions.git
 ```
 
 **Add from a local clone:**
 
 ```sh
-git clone git@github.com:lens-studio-devs/ls-extensions.git
+git clone https://github.com/lens-studio-devs/ls-extensions.git
 codex plugin marketplace add /absolute/path/to/ls-extensions
 ```
 
@@ -57,7 +57,7 @@ Follow Cursor's official docs for [testing plugins locally](https://cursor.com/d
 For example, after cloning the repo locally, you can copy a specific plugin directory into Cursor's global local plugin directory:
 
 ```sh
-git clone git@github.com:lens-studio-devs/ls-extensions.git
+git clone https://github.com/lens-studio-devs/ls-extensions.git
 mkdir -p ~/.cursor/plugins/local
 cp -R /absolute/path/to/ls-extensions/plugins/ls-clad ~/.cursor/plugins/local/ls-clad
 ```
