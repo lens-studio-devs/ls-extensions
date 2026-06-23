@@ -1,0 +1,22 @@
+{
+  "description": "Lens Studio MCP liveness gate (cross-platform): before any mcp__lens-studio__* call, probe the lens-studio endpoint from .mcp.json and, if unreachable (Lens Studio crashed/quit), deny the call and halt the turn. macOS/Linux via bash /dev/tcp; Windows via PowerShell TcpClient. Dependency-free; fails open where neither shell is available.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__lens-studio__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'command -v bash >/dev/null 2>&1 && exec bash \"$0\" || exit 0' \"${CLAUDE_PLUGIN_ROOT}/hooks/mcp-liveness-check.sh\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "sh -c 'command -v powershell >/dev/null 2>&1 && exec powershell -NoProfile -ExecutionPolicy Bypass -File \"$0\" || exit 0' \"${CLAUDE_PLUGIN_ROOT}/hooks/mcp-liveness-check.ps1\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
