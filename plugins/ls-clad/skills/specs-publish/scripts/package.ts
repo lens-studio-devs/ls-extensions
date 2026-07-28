@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // publish · PACKAGE (Editor API)
-// Run AS-IS via ExecuteEditorCode — zero config, no edits needed.
+// Run AS-IS via ExecuteEditorCode — zero config. Pass this file's path as `path`; do NOT read it.
 //
 // Saves the project, waits for background tasks, then exports a PRODUCTION-signed SPK to
 // <project>/.export/<name>.spk and returns its base64 SHA-256 checksum. This is the
@@ -111,9 +111,15 @@ try {
   const packageId = oneLine(readProjectScalar(projectText, "packageId"));
   const lensName = oneLine(stripYamlScalarQuotes(project.metaInfo.lensName) || readProjectScalar(projectText, "lensName"));
   if (!packageId || !lensName) {
+    const message =
+      !packageId && !lensName
+        ? "The project needs a package ID and a Lens name before it can be submitted."
+        : !packageId
+          ? "The project needs a package ID before it can be submitted."
+          : "The project needs a Lens name before it can be submitted.";
     return actionRequired(
       "missing_submission_metadata",
-      "The project needs a package ID and a lens name before it can be submitted.",
+      message,
       { projectPath, packageId, lensName },
     );
   }

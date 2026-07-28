@@ -9,6 +9,8 @@ const { SAMPLE_RATE, TWO_PI } = require('./audio_primitives');
 
 // ─── PRNG ──────────────────────────────────────────────────
 // Tiny seeded PRNG so a seed gives reproducible humanization.
+// Provenance: mulberry32 by Tommy Ettinger, dedicated to the public domain (CC0)
+// — gist.github.com/tommyettinger/46a874533244883189143505d203312c. Apache-safe.
 function mulberry32(seed) {
     let s = seed >>> 0;
     return function () {
@@ -45,22 +47,36 @@ function jitter(value, amount, rng = Math.random) {
 }
 
 // ─── Event-level humanization ──────────────────────────────
-// Mutates an array of {time, midi, velocity, duration} (and any extras) in place.
+// Mutates an array of {time, beat, velocity, ...} (and any extras) in place.
+// `time` is in SECONDS; `beat` (beat-space position, stamped by the renderer) is
+// what swing and metric accents are computed from.
 // opts.timeJitter: seconds (±). Recommended 0.005–0.015 for naturalness.
 // opts.velJitter: 0..1 multiplier of velocity range (0..127). 0.05–0.20 typical.
 // opts.pitchDriftCents: subtle pitch jitter (use 0 unless going for vintage tape feel).
-// opts.groove: 'swing' adds a swing (delays every other 8th-note); pass `subdivisionBeats`
-//   (default 0.5) to control where the swing applies.
+// opts.groove: 'swing' delays the off-beat subdivision; `swingAmount` ≈ 2·(swing%−0.5),
+//   so 0.16 ≈ 58% ("natural" swing), 0.24 ≈ 62% (Dilla zone). `subdivisionBeats`
+//   (default 0.5 = 8th-note swing; 0.25 = 16th-note swing).
+// opts.driftSec: amplitude (seconds) of slow correlated timing drift (a human's pulse
+//   wanders; pure per-event white jitter doesn't capture that). 0 disables.
+// opts.accentAmount: 0..1 strength of a metric velocity accent (downbeats louder,
+//   off-beats softer). 0 (default) leaves composer velocities untouched.
 function humanizeEvents(events, opts = {}) {
     const timeJitter = opts.timeJitter !== undefined ? opts.timeJitter : 0.008;
     const velJitter = opts.velJitter !== undefined ? opts.velJitter : 0.12;
     const pitchDriftCents = opts.pitchDriftCents || 0;
     const rng = opts.rng || Math.random;
+    const bpm = opts.bpm || 120;
     const swing = opts.groove === 'swing' ? (opts.swingAmount !== undefined ? opts.swingAmount : 0.16) : 0;
     const subdivisionBeats = opts.subdivisionBeats || 0.5;
+    const driftSec = opts.driftSec !== undefined ? opts.driftSec : 0;
+    const accentAmount = opts.accentAmount || 0;
+    const beatDur = 60 / bpm;
+    // Slow correlated drift shares one smooth-noise field across the track.
+    const drift = driftSec > 0 ? smoothNoise1D((opts.seed || 1) * 31 + 5, 0.6) : null;
 
     for (const e of events) {
         if (timeJitter > 0) e.time = Math.max(0, e.time + (rng() * 2 - 1) * timeJitter);
+        if (drift) e.time = Math.max(0, e.time + drift(e.time) * driftSec);
         if (velJitter > 0 && typeof e.velocity === 'number') {
             const range = 127 * velJitter;
             e.velocity = Math.max(1, Math.min(127, e.velocity + (rng() * 2 - 1) * range));
@@ -68,11 +84,26 @@ function humanizeEvents(events, opts = {}) {
         if (pitchDriftCents > 0) {
             e.detuneCents = (e.detuneCents || 0) + (rng() * 2 - 1) * pitchDriftCents;
         }
+        // Metric velocity accent (only if requested) — beat 1 strongest, then beat 3,
+        // then other beats, then off-beats. Communicates meter the way players do.
+        if (accentAmount > 0 && e.beat !== undefined && typeof e.velocity === 'number') {
+            const posInBar = ((e.beat % 4) + 4) % 4;
+            let w;
+            if (posInBar < 0.05) w = 1.0;
+            else if (Math.abs(posInBar - 2) < 0.05) w = 0.92;
+            else if (Math.abs(posInBar - Math.round(posInBar)) < 0.05) w = 0.85;
+            else w = 0.72;
+            const scaled = e.velocity * (1 - accentAmount + accentAmount * w);
+            e.velocity = Math.max(1, Math.min(127, scaled));
+        }
+        // Swing: delay the off-beat subdivision (the second note of each pair).
         if (swing && e.beat !== undefined) {
-            // Every "off-beat" (odd subdivision) gets pushed later
             const subBeat = e.beat / subdivisionBeats;
-            if (Math.round(subBeat) % 2 === 1) {
-                e.time += swing * (60 / (opts.bpm || 120)) * subdivisionBeats;
+            const nearest = Math.round(subBeat);
+            // Only true off-beat subdivisions get swung — not 16ths-against-8th-grid,
+            // not triplets (the old Math.round()%2 swung both, inconsistently).
+            if (Math.abs(subBeat - nearest) < 0.02 && (nearest % 2 === 1)) {
+                e.time += swing * beatDur * subdivisionBeats;
             }
         }
     }

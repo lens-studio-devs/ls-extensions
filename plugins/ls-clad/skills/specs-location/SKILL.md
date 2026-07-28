@@ -10,7 +10,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # Location API — GPS, Heading, and Snap Places
 
-**Requirements:** Lens Studio v5.7+, Spectacles OS v5.60+. Internet required.
+**Requirements:** Lens Studio v5.7+, Snap OS v5.60+. Internet required.
 
 > User must be logged in + paired to Snapchat, with location permission enabled.
 

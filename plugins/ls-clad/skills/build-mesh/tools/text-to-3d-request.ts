@@ -7,8 +7,11 @@
 // session (via request.authorization / performAuthorizedHttpRequest), so there is NO
 // API key to handle, store, or commit.
 //
-// HOW TO RUN: read this file, set the CONFIG values for THIS call in the copy you pass
-// to ExecuteEditorCode, then send the rest unchanged. Do NOT edit the file on disk.
+// HOW TO RUN: do NOT read this file, and do NOT hand-write the CONFIG consts.
+// Run `make-eec-script.py` against it — it JSON-encodes each value (a bare
+// quote or a Windows backslash otherwise corrupts the emitted TypeScript), keeps the
+// declarations' type annotations, and prints a unique temp path. Pass that path to
+// ExecuteEditorCode as `path`, then delete it. Never edit this file on disk.
 //
 //   Create (POST):  METHOD = "POST"; REQUEST_PATH = "/v1/generations";
 //                   BODY = { prompt, /* + output_quality/preview_quality/reconstruction_quality/seed/style/negative_prompt if set */ }

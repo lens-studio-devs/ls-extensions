@@ -8,7 +8,7 @@ When a `Batch` call fails, the response includes:
 - `completedStepCount` — how many steps succeeded before the failure
 - `skippedSteps` — the un-executed tail (steps after the failure)
 - `handState` — what each hand is holding now
-- `error` + `reason` — the lens-side error (or `reason: "timeout"` / `"transport_error"` for MCP-layer failures)
+- `error` + `reason` — the Lens-side error (or `reason: "timeout"` / `"transport_error"` for MCP-layer failures)
 
 ## Recovery Steps
 

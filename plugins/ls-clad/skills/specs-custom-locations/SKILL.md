@@ -10,7 +10,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # Custom Locations — Real-World Location AR
 
-**Requirements:** Lens Studio v5.15.4+, Spectacles OS v5.64+, Spectacles App v0.64+. The
+**Requirements:** Lens Studio v5.15.4+, Snap OS v5.64+, Specs App v0.64+. The
 **Custom Locations** Lens (in *All Lenses* on the device) is used to scan and publish.
 
 ## What this skill can and cannot automate

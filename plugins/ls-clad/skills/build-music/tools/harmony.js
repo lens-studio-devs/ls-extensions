@@ -210,7 +210,65 @@ const GENRES = {
         extensions: ['9', 'add9', '7'],
         voicings: ['rootless7th', 'drop2', 'spread'],
     },
+    synthwave: {
+        scales: ['minor'],
+        keys: ['A2', 'C3', 'D3', 'F3', 'G2', 'E3'],
+        progressions: [
+            ['i', 'VI', 'III', 'VII'],
+            ['i', 'VII', 'VI', 'VII'],
+            ['i', 'VI', 'VII', 'i'],
+            ['VI', 'VII', 'i', 'III'],
+            ['i', 'iv', 'VI', 'V'],
+        ],
+        extensions: ['none', 'none', 'add9'],
+        voicings: ['closeVoiced', 'spread'],
+    },
+    funk: {
+        // Vamp-heavy: dominant-7 colors, often sitting on one chord. Scale is
+        // pinned to mixolydian so melody passing tones agree with the dom7 vamps
+        // (a dorian minor-funk flavor belongs under 'dark' or 'rnb').
+        scales: ['mixolydian'],
+        keys: ['E3', 'G3', 'A3', 'C4', 'D3', 'F3'],
+        progressions: [
+            ['I7', 'I7', 'IV7', 'I7'],
+            ['I7', 'IV7', 'I7', 'V7'],
+            ['I7', 'I7', 'I7', 'IV7'],
+            ['I7', 'IV7', 'V7', 'IV7'],
+        ],
+        extensions: ['none', '9'],
+        voicings: ['shellVoicing', 'rootless7th', 'closeVoiced'],
+    },
+    ambient: {
+        scales: ['lydian', 'major'],
+        keys: ['C4', 'F4', 'G4', 'D4', 'A3', 'Eb4'],
+        progressions: [
+            ['Imaj7', 'IVmaj7'],
+            ['Imaj7', 'vi7', 'IVmaj7', 'Imaj7'],
+            ['Imaj7', 'IVmaj7', 'vi7', 'IVmaj7'],
+            ['Imaj7', 'iii7', 'IVmaj7', 'Imaj7'],
+        ],
+        extensions: ['add9', 'sus2', 'add9'],
+        voicings: ['spread', 'wideOpen', 'closeVoiced'],
+    },
 };
+
+// ─── Tempo suggestions ────────────────────────────────────────
+// Genre-idiomatic BPM ranges. suggestTempo picks inside the range (seeded or
+// fresh-random) so two pieces with the same vibe don't share a tempo. Callers
+// should prefer this over copying a BPM from an example.
+const TEMPO_RANGES = {
+    pop: [96, 120], 'sad-pop': [72, 88], lofi: [68, 86], 'lofi-jazz': [70, 90],
+    jazz: [96, 150], 'cinematic-epic': [68, 100], 'cinematic-melancholy': [58, 78],
+    dreamy: [70, 96], folk: [88, 120], 'edm-uplift': [122, 130], dark: [80, 110],
+    rnb: [64, 84], synthwave: [84, 108], funk: [96, 116], ambient: [50, 70],
+    trap: [130, 150], 'hip-hop': [82, 96], house: [120, 128], bossa: [120, 140],
+};
+
+function suggestTempo(genre = 'pop', seed) {
+    const range = TEMPO_RANGES[genre] || [90, 120];
+    const r = rng(seed !== undefined ? seed : Math.floor(Math.random() * 1e9));
+    return Math.round(range[0] + r() * (range[1] - range[0]));
+}
 
 // ─── Voice profiles (sustain behavior per voice) ──────────────
 //
@@ -235,10 +293,18 @@ const VOICE_PROFILES = {
     synthLead: { sustain: 'medium' },
     synthBass: { sustain: 'medium' },
     subBass: { sustain: 'medium' },
+    organ: { sustain: 'medium' },
+    whistle: { sustain: 'medium' },
+    acidBass: { sustain: 'medium' },
     // Plucks / mallets — fast decay; full bar is fine.
     pluckString: { sustain: 'short' },
     nylonGuitar: { sustain: 'short' },
     marimba: { sustain: 'short' },
+    musicBox: { sustain: 'short' },
+    kalimba: { sustain: 'short' },
+    steelDrum: { sustain: 'short' },
+    pluckSynth: { sustain: 'short' },
+    mutedGuitar: { sustain: 'short' },
 };
 
 // Fraction of the bar a chord note actually plays for, per sustain bias.
@@ -316,7 +382,12 @@ function applyExtension(ch, ext) {
         const has7 = ch.notes.some(n => n - root === 10 || n - root === 11);
         if (has7) return ch;
         const notes = ch.notes.slice();
-        const seventh = (ch.type === 'major' || ch.type === 'maj7') ? 11 : 10;
+        // A plain major triad + "7" means a DOMINANT 7th (♭7, interval 10) — the
+        // common pop/blues/R&B color, and correct for a V chord. (The old code
+        // added a major 7th to every major triad, so a "V7" in A minor came out
+        // E-G#-B-D#, with D# clashing against the key. A maj7 is requested
+        // explicitly via the 'maj7' chord type / 'Imaj7' numerals.)
+        const seventh = 10;
         notes.push(root + seventh);
         return Object.assign({}, ch, { notes: notes.sort((a, b) => a - b) });
     }
@@ -343,29 +414,45 @@ function applyExtension(ch, ext) {
 //
 // Two modes:
 //
-//   'centroid' (default) — Shift the chord by whole octaves to minimize the
-//     centroid distance to the previous chord. Smooth average motion across
-//     the progression. Good for pop/jazz/folk where harmonic *movement* is
-//     part of the song.
+//   'centroid' (default) — Smooth, inversion-aware voice leading: search every
+//     inversion (chord rotation) × octave shift of the current chord and pick
+//     the layout that minimizes total voice motion from the previous chord,
+//     keeping common tones in place. This is what makes a progression sound
+//     like a keyboardist comping rather than parallel root-position blocks (the
+//     old version only octave-shifted whole chords → parallel fifths/octaves,
+//     the classic "naive MIDI" sound). Good for pop/jazz/folk/r&b.
 //
-//   'topAnchored' — Pick an inversion (chord rotation + octave shift) that
-//     keeps the *highest* note as close as possible to the previous chord's
-//     top. Eliminates the perceived top-voice melody — the chord layer reads
-//     as flat texture instead of as a moving line. Right for cinematic/dark/
-//     dreamy/ambient where you want a held bed, not a song.
+//   'topAnchored' — Pick an inversion that keeps the *highest* note as close as
+//     possible to the previous chord's top. Eliminates the perceived top-voice
+//     melody — the chord layer reads as flat texture instead of a moving line.
+//     Right for cinematic/dark/dreamy/ambient where you want a held bed.
 
 function leadVoicing(prevNotes, currNotes) {
-    if (!prevNotes || !prevNotes.length) return currNotes.slice();
+    if (!prevNotes || !prevNotes.length) return currNotes.slice().sort((a, b) => a - b);
     const prevCentroid = prevNotes.reduce((a, b) => a + b, 0) / prevNotes.length;
-    let best = currNotes.slice();
-    let bestDist = Infinity;
-    for (let oct = -2; oct <= 2; oct++) {
-        const shifted = currNotes.map(n => n + oct * 12);
-        const c = shifted.reduce((a, b) => a + b, 0) / shifted.length;
-        const d = Math.abs(c - prevCentroid);
-        if (d < bestDist) { bestDist = d; best = shifted; }
+    let best = null;
+    let bestCost = Infinity;
+    // Search inversions × octave shifts; minimize summed nearest-voice motion.
+    for (const inv of inversionsOf(currNotes)) {
+        for (let oct = -2; oct <= 2; oct++) {
+            const cand = inv.map(n => n + oct * 12);
+            // Voice motion: each note in the new chord moves from its nearest
+            // note in the previous chord. Common tones cost 0 — so retaining
+            // them (and stepwise motion in the rest) is preferred automatically.
+            let motion = 0;
+            for (const c of cand) {
+                let nearest = Infinity;
+                for (const p of prevNotes) nearest = Math.min(nearest, Math.abs(c - p));
+                motion += nearest;
+            }
+            // Soft register anchor: keep the chord's centroid near the previous
+            // one so the progression doesn't drift up/down or collapse in range.
+            const cc = cand.reduce((a, b) => a + b, 0) / cand.length;
+            const cost = motion + Math.abs(cc - prevCentroid) * 0.5;
+            if (cost < bestCost) { bestCost = cost; best = cand; }
+        }
     }
-    return best;
+    return best.slice().sort((a, b) => a - b);
 }
 
 // Generate inversion candidates by rotating the bottom note up an octave.
@@ -802,6 +889,8 @@ module.exports = {
     composeMelody,
     chordEvents,
     listGenres,
+    suggestTempo,
+    TEMPO_RANGES,
     GENRES,
     VOICINGS,
     VOICE_PROFILES,

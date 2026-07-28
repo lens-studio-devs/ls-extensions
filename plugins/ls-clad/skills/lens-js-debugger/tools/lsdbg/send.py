@@ -69,9 +69,9 @@ def run_send(
         sock.close()
         return 1
 
-    # 30s default; extended for waitFor / waitForIdleMs (server timeout +
-    # 5s grace); extended for blocking console-log to (timeout + 5s grace)
-    # so the client doesn't time out before the server's deadline fires.
+    # 30s default; extended for waitFor (server timeout + 5s grace); extended
+    # for blocking console-log to (timeout + 5s grace) so the client doesn't
+    # time out before the server's deadline fires.
     client_timeout_s: float | None = 30.0
     # console-log returns `result.lines` (formatted strings); shorthand mode
     # prints them as plaintext rather than emitting the JSON envelope.
@@ -79,9 +79,7 @@ def run_send(
     try:
         parsed = json.loads(payload_str)
         has_wait_for = isinstance(parsed, dict) and isinstance(parsed.get("waitFor"), str)
-        wait_idle = parsed.get("waitForIdleMs") if isinstance(parsed, dict) else None
-        has_wait_idle = isinstance(wait_idle, int) and not isinstance(wait_idle, bool)
-        if has_wait_for or has_wait_idle:
+        if has_wait_for:
             server_timeout_ms = parsed.get("waitTimeout", 30000)
             if isinstance(server_timeout_ms, int) and not isinstance(server_timeout_ms, bool):
                 client_timeout_s = (server_timeout_ms + 5000) / 1000.0
@@ -216,7 +214,7 @@ def _read_until_done(
                 return 1
             except KeyboardInterrupt:
                 # Ctrl-C during a long-running verb (blocking console-log,
-                # --wait-paused / --wait-idle) is the normal exit.
+                # --wait-paused) is the normal exit.
                 return 0
             except OSError as e:
                 if not saw_first_response:

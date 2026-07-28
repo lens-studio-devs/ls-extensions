@@ -31,7 +31,8 @@
 // silently dropped per resources/docs/storage-properties.mdx).
 //
 // Networked events:
-//   - "start" / "restart" — game-flow control (any player can send).
+//   - "restart" — game-flow control (any player can send). There is no
+//     "start" event — the game implicitly starts on X's first move.
 //   - "placeMove" — non-owner relays a move to the owner.
 //
 // Caveat: the presence handshake converges for late joiners but NOT for

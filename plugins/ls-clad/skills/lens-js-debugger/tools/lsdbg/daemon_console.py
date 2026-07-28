@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from datetime import datetime, timezone
 from typing import Any, Iterator, Optional
 
@@ -84,15 +83,6 @@ class EventsMixin:
         # even if they roll out of the ring buffer.
         self._record_health_event(method)
 
-        # `--wait-for-idle` resets on any CDP event flowing through here.
-        # No cancel/recreate — the polling loop in `_wait_idle_timer_loop`
-        # re-reads `last_event_monotonic` on each wake.
-        if self.waiting_idle_clients:  # type: ignore[attr-defined]
-            now = time.monotonic()
-            for idle_state in self.waiting_idle_clients.values():  # type: ignore[attr-defined]
-                idle_state.events_observed += 1
-                idle_state.last_event_monotonic = now
-
         # Console events fan out BEFORE wait-for so a blocking `console-log`
         # and a `--wait-for Runtime.consoleAPICalled` see the same event.
         if method == "Runtime.consoleAPICalled":
@@ -124,12 +114,6 @@ class EventsMixin:
                 if state.method == method:
                     state.timer_task.cancel()
                     self.waiting_clients.pop(writer, None)  # type: ignore[attr-defined]
-                    # Drop any composing --wait-for-idle entry so its
-                    # satisfaction path doesn't write after the sentinel.
-                    idle_state = self.waiting_idle_clients.pop(writer, None)  # type: ignore[attr-defined]
-                    if idle_state is not None:
-                        idle_state.idle_timer_task.cancel()
-                        idle_state.hard_deadline_task.cancel()
                     self._write_line(writer, {"__done": True})  # type: ignore[attr-defined]
                     await self._drain(writer)  # type: ignore[attr-defined]
 

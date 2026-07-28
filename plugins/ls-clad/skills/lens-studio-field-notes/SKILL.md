@@ -165,7 +165,7 @@ Invoke these skills **during planning, not just execution** — they document re
 
 Project target, camera tracking mode, and preview simulation input are platform-dependent and must match the Lens's intent **before** you preview — defaults are frequently wrong, and a wrong default yields a build that looks fine in the editor but does nothing in preview. Don't hand-roll these; run the platform init skill:
 
-- **Specs** → `specs-project-init` (auto-fixes Spectacles target, Perspective + `DeviceTracking` World, Spectacles preview device).
+- **Specs** → `specs-project-init` (auto-fixes Spectacles target, Perspective + `DeviceTracking` World, Specs preview device).
 - **Snapchat** → `snapchat-project-init` (inline checklist: tracking mode, preview input, target — each inferred from what the Lens does).
 
 ## Scene Preparation

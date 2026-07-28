@@ -57,7 +57,7 @@ this.hitTestSession.hitTest(rayStart, rayEnd, (result) => {
 })
 ```
 
-### Typical hit test using SIK targeting interactor (Spectacles)
+### Typical hit test using SIK targeting interactor (Specs)
 
 ```typescript
 import { InteractorInputType } from 'SpectaclesInteractionKit.lspkg/Core/Interactor/Interactor'

@@ -15,6 +15,43 @@ const { mulberry32 } = require('./humanize');
 
 const IR_CACHE = new Map();
 
+// Velvet-noise reverb tail with per-band decay. Sparse ±1 pulses on a jittered
+// grid (smoother than Gaussian noise), split into low/mid/high bands that each
+// decay at their own RT60 (high fastest = air absorption, low slowest). Returns
+// a Float32Array of length tailLen.
+function velvetTail(tailLen, duration, hfDamping, decayCurve, seed) {
+    const rng = mulberry32(seed);
+    const rho = 2500;                      // pulses/second
+    const Td = SAMPLE_RATE / rho;          // grid spacing
+    const carrier = new Float32Array(tailLen);
+    for (let m = 0; ; m++) {
+        const k = Math.round(m * Td + rng() * (Td - 1));
+        if (k >= tailLen) break;
+        if (k >= 0) carrier[k] = rng() < 0.5 ? -1 : 1;
+    }
+    // Three bands with independent RT60. hfDamping shortens the high band.
+    const bands = [
+        { hp: 0,    lp: 260,  mult: 1.15 },                  // low — lingers
+        { hp: 260,  lp: 2600, mult: 1.0 },                   // mid
+        { hp: 2600, lp: 0,    mult: 0.5 - hfDamping * 0.3 }, // high — air absorption + damping
+    ];
+    const out = new Float32Array(tailLen);
+    for (const b of bands) {
+        const band = Float32Array.from(carrier);
+        if (b.hp) highPass2(band, b.hp, 0.707);
+        if (b.lp) lowPass2(band, b.lp, 0.707);
+        const t60 = Math.max(0.1, duration * b.mult);
+        const dc = decayCurve === 'exp' ? Math.log(1000) / t60 : 0;
+        for (let i = 0; i < tailLen; i++) {
+            const t = i / SAMPLE_RATE;
+            const env = decayCurve === 'exp' ? Math.exp(-dc * t) : Math.max(0, 1 - t / Math.max(0.1, duration - 0.04));
+            out[i] += band[i] * env;
+        }
+    }
+    highPass2(out, 80, 0.707); // remove sub-rumble to keep mixes clean
+    return out;
+}
+
 // Build a stereo IR. opts:
 //   duration: total IR length in seconds (0.3 = small room, 1.5 = hall, 3.0 = cathedral)
 //   roomSize: 0..1, scales early-reflection density and spacing
@@ -64,50 +101,18 @@ function synthIR(opts = {}) {
         }
     }
 
-    // Late reverb tail — decaying noise, denser as time progresses (cool feature of real
-    // diffuse fields: late energy is statistically a Gaussian envelope-modulated noise).
+    // Late reverb tail — a VELVET-NOISE carrier (sparse ±1 pulses on a jittered
+    // grid) rather than Gaussian white noise. At equal length velvet noise is
+    // rated smoother and less metallic/grainy (Välimäki et al.; the listening
+    // literature puts the "sounds like smooth noise" threshold around 1500–2000
+    // pulses/s, so 2500 offline is comfortably smooth). Each of three frequency
+    // bands gets its OWN RT60 — the high band decays fastest (air absorption),
+    // replacing the old single HF-damping crossfade, which is the main reason a
+    // synthetic tail reads as "static-like".
     const tailStart = Math.floor(0.04 * SAMPLE_RATE);
     const tailLen = len - tailStart;
-    const tailL = new Float32Array(tailLen);
-    const tailR = new Float32Array(tailLen);
-
-    // Use two independent noise streams for true stereo de-correlation.
-    const rngL = mulberry32(seed * 7 + 1);
-    const rngR = mulberry32(seed * 7 + 2);
-    // Decay constant: choose so the tail is -60 dB by `duration`.
-    const decayConst = decayCurve === 'exp' ? Math.log(1000) / duration : 0;
-    for (let i = 0; i < tailLen; i++) {
-        const t = i / SAMPLE_RATE;
-        const env = decayCurve === 'exp'
-            ? Math.exp(-decayConst * t)
-            : Math.max(0, 1 - t / (duration - 0.04));
-        tailL[i] = (rngL() * 2 - 1) * env;
-        tailR[i] = (rngR() * 2 - 1) * env;
-    }
-
-    // HF damping — progressive lowpass on the tail (mimics air absorption).
-    // Apply twice for steeper rolloff. Cutoff falls as time goes on so the late tail is darker.
-    if (hfDamping > 0) {
-        const startCutoff = 8000 - hfDamping * 6000;
-        const endCutoff = Math.max(800, startCutoff - hfDamping * 4000);
-        // Two-pass: first apply a fixed LPF, then a slower-changing one. The slow change is
-        // approximated by doing a second pass at the endCutoff and crossfading.
-        lowPass2(tailL, startCutoff, 0.7);
-        lowPass2(tailR, startCutoff, 0.7);
-        const tailL2 = Float32Array.from(tailL);
-        const tailR2 = Float32Array.from(tailR);
-        lowPass2(tailL2, endCutoff, 0.7);
-        lowPass2(tailR2, endCutoff, 0.7);
-        for (let i = 0; i < tailLen; i++) {
-            const u = i / Math.max(1, tailLen - 1);
-            tailL[i] = tailL[i] * (1 - u) + tailL2[i] * u;
-            tailR[i] = tailR[i] * (1 - u) + tailR2[i] * u;
-        }
-    }
-
-    // Remove very-low rumble from the tail to keep mixes clean.
-    highPass2(tailL, 80, 0.7);
-    highPass2(tailR, 80, 0.7);
+    const tailL = velvetTail(tailLen, duration, hfDamping, decayCurve, seed * 7 + 1);
+    const tailR = velvetTail(tailLen, duration, hfDamping, decayCurve, seed * 7 + 2);
 
     // Add tail into IR with a soft fade-in over the first ~20 ms of the tail region so the
     // boundary between ER and tail isn't a click.

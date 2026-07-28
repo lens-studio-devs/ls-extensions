@@ -163,11 +163,10 @@ def spawn_and_wait(
     host: str,
     port: int,
     target_id: str,
-    verbose: bool,
     timeout_ms: Optional[int] = None,
 ) -> EnsureResult:
     effective_timeout_ms = SPAWN_MAX_WAIT_MS if timeout_ms is None else max(timeout_ms, 0)
-    proc, spawn_error = _spawn_attach(host=host, port=port, target_id=target_id, verbose=verbose)
+    proc, spawn_error = _spawn_attach(host=host, port=port, target_id=target_id)
     if spawn_error:
         return EnsureResult(ok=False, error=spawn_error)
 
@@ -183,7 +182,6 @@ def spawn_and_wait(
 def ensure_session(
     host: str,
     port: int,
-    verbose: bool = False,
     target: Optional[str] = None,
 ) -> EnsureResult:
     handled, _ = _check_and_cleanup_session(host, port)
@@ -194,14 +192,13 @@ def ensure_session(
     if resolved.error:
         return EnsureResult(ok=False, error=resolved.error)
 
-    return spawn_and_wait(host=host, port=port, target_id=resolved.target_id, verbose=verbose)
+    return spawn_and_wait(host=host, port=port, target_id=resolved.target_id)
 
 
 def attach_wait_session(
     host: str,
     port: int,
     target_id: str,
-    verbose: bool = False,
     timeout_ms: Optional[int] = None,
 ) -> EnsureResult:
     handled, err = _check_and_cleanup_session(host, port, required_target_id=target_id)
@@ -213,7 +210,6 @@ def attach_wait_session(
         host=host,
         port=port,
         target_id=target_id,
-        verbose=verbose,
         timeout_ms=timeout_ms,
     )
 
@@ -222,7 +218,6 @@ def attach_until_live(
     host: str,
     port: int,
     target_id: str,
-    verbose: bool = False,
     timeout_ms: Optional[int] = None,
 ) -> tuple[bool, Optional[str], str]:
     effective_timeout_ms = SPAWN_MAX_WAIT_MS if timeout_ms is None else max(timeout_ms, 0)
@@ -232,7 +227,6 @@ def attach_until_live(
         host=host,
         port=port,
         target_id=target_id,
-        verbose=verbose,
         timeout_ms=effective_timeout_ms,
     )
     if not result.ok:
@@ -261,7 +255,7 @@ def attach_until_live(
     return (True, state, "")
 
 
-def _spawn_attach(host: str, port: int, target_id: str, verbose: bool) -> tuple[Optional[subprocess.Popen], str]:
+def _spawn_attach(host: str, port: int, target_id: str) -> tuple[Optional[subprocess.Popen], str]:
     env = os.environ.copy()
     package_dir = os.path.dirname(os.path.abspath(__file__))  # .../tools/lsdbg/
     tools_dir = os.path.dirname(package_dir)  # .../tools/
@@ -269,14 +263,9 @@ def _spawn_attach(host: str, port: int, target_id: str, verbose: bool) -> tuple[
     env["PYTHONPATH"] = tools_dir + (os.pathsep + existing if existing else "")
     env["LSDBG_INTERNAL_FOREGROUND"] = "1"
 
-    # --host / --port / --verbose are top-level globals (sit before the
-    # verb). Earlier they hung off each subparser; placing them after
-    # `attach` now produces "unrecognized arguments" — see
-    # test_spawn_attach_argv_parses_against_real_parser.
-    args = [sys.executable, "-m", "lsdbg", "--host", host, "--port", str(port)]
-    if verbose:
-        args.append("--verbose")
-    args.extend(["attach", "--target", target_id])
+    # The child uses the fixed default host/port, so nothing needs to be
+    # passed through ahead of the verb.
+    args = [sys.executable, "-m", "lsdbg", "attach", "--target", target_id]
 
     log_file_path = log_path(host, port)
     # Truncate any prior log so we don't tail stale lines on retry.

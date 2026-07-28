@@ -10,7 +10,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # Spatial Image — 2D to 3D Spatialization
 
-**Requirements:** Lens Studio v5.3+, Spectacles OS v5.58+. Install **Spatial Image** package from Asset Library. Requires Remote Service Gateway credential.
+**Requirements:** Lens Studio v5.3+, Snap OS v5.58+. Install **Spatial Image** package from Asset Library. Requires Remote Service Gateway credential.
 
 Reference: `Spatial Image/`, `Spatial Image Advanced/`
 

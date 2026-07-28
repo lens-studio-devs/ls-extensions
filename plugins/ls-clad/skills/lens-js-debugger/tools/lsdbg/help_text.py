@@ -157,8 +157,7 @@ HEALTH_EPILOG = """\
 Live daemon → {state, session, vm, activity_since_attach, preview}; on a throw,
 vm.exception_text carries the message. Pre-attach (no daemon) → {status:
 "booting"|"no_session", targets?}. Branch on result.state (attached) /
-result.status (pre-attach), never the exit code. --raw re-includes the
-structurally-null preview fields the default omits."""
+result.status (pre-attach), never the exit code."""
 
 CLEANUP_EPILOG = """\
 Removes session breakpoints, resets pause-on-exceptions, and tears down the
@@ -173,6 +172,33 @@ the ones THIS session tracked (bps carried over from a dead session survive).
 --all → {daemon:"stopped", sessions:[...]} (always, even single-target).
 --force → SIGTERM/SIGKILL escape hatch for a wedged daemon. Against an
 already-dead daemon, cleanup is idempotent success {alreadyGone:true}, exit 0."""
+
+PROFILE_START_EPILOG = """\
+Starts Hermes' CPU sampling profiler (no separate enable step needed). Returns
+{profiling:true} immediately; sampling runs in the background until
+profile-stop. Only CPU time spent IN running JS is sampled — an idle or paused
+preview produces no samples, so trigger the workload you want to measure
+between start and stop. Calling start twice is harmless (the second is a no-op).
+Per-target: --target picks which preview to profile when several are attached."""
+
+PROFILE_STOP_EPILOG = """\
+Stops the profiler and collapses the raw CDP CPU profile (a node/sample graph,
+often megabytes) into a self-time-ranked hot-function summary:
+  durationMs        wall-clock between the first and last sample.
+  sampleCount       total samples taken (0 ⇒ the lens never ran; see hint).
+  functionsProfiled distinct functions seen at a sampled stack leaf.
+  topFunctions[]    ranked by self time, capped at 15 (see `truncated`):
+      functionName  "(anonymous)" when Hermes had no name.
+      url, line     source of the function (omitted when unavailable).
+      selfTimeMs    self time in ms (omitted when the engine sent no timeDeltas).
+      selfPercent   share of captured self time (of sample count when untimed).
+      samples       samples whose stack leaf was this function.
+  truncated         functions beyond the top 15, when present.
+  hint              present only when no samples were collected.
+
+Self time, NOT total: a cheap caller of an expensive callee ranks low — the
+callee is the leaf. Read top-down for where CPU actually goes. Line numbers are
+Hermes debug-info lines on the compiled script (no source-map walk applied)."""
 
 PAUSE_ON_EXCEPTIONS_EPILOG = """\
 {previousState, newState} echoing the transition (CDP itself returns a bare {}).

@@ -37,12 +37,25 @@ function writeBuffer(samplesPerChannel, numChannels, outputPath) {
     buf.write('data', off); off += 4;
     buf.writeUInt32LE(dataSize, off); off += 4;
 
-    // Interleave channels (LRLR... for stereo, mono for 1 channel)
+    // Interleave channels (LRLR... for stereo, mono for 1 channel).
+    // TPDF dither at ±1 LSB before rounding: undithered truncation turns quiet
+    // tails and fades into correlated quantization distortion. Seeded PRNG so
+    // the same render always produces byte-identical output.
+    let dseed = 0x9E3779B9 >>> 0;
+    const drand = () => {
+        dseed = (dseed + 0x6D2B79F5) >>> 0;
+        let t = dseed;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const LSB = 1 / 32767;
     for (let i = 0; i < numSamples; i++) {
         for (let c = 0; c < numChannels; c++) {
             const s = samplesPerChannel[c][i] || 0;
-            const clamped = Math.max(-1, Math.min(1, s));
-            const int16 = Math.floor(clamped * 32767);
+            const dither = (drand() + drand() - 1) * LSB;
+            const clamped = Math.max(-1, Math.min(1, s + dither));
+            const int16 = Math.max(-32768, Math.min(32767, Math.round(clamped * 32767)));
             buf.writeInt16LE(int16, off);
             off += 2;
         }

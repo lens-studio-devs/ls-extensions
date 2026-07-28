@@ -4,6 +4,16 @@
 // pattern.js — Mini-notation parser and pattern combinators.
 // Compact text representation of rhythmic patterns for offline rendering.
 //
+// LICENSE / PROVENANCE: the mini-notation SYNTAX (~, [], <>, *, /, @, {}) is
+// inspired by TidalCycles (GPL-3.0) and Strudel (AGPL-3.0). Syntax is an
+// unprotectable method of operation (17 U.S.C. §102(b); Google v. Oracle), and
+// this implementation is independent and original (hand-rolled tokenizer +
+// recursive descent + eager event expansion — nothing like Strudel's PEG/krill
+// lazy-Pattern engine). NEVER port, paste, or closely paraphrase code from
+// TidalCycles, Strudel, SuperCollider, or Csound into this file or this repo —
+// it syncs to a public Apache-2.0 repository. Studying their docs/syntax is fine;
+// copying their code is a copyleft-contamination incident.
+//
 // Supported syntax:
 //   "c4 e4 g4"        → three quarter-notes (when divisor=1)
 //   "0 2 4 6"         → scale-degree pattern (use with scale())

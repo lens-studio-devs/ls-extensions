@@ -17,7 +17,7 @@ const {
     SAMPLE_RATE, TWO_PI, sine, square, sawtooth, triangle, whiteNoise, pinkNoise,
     adsr, adsrExp, fadeIn, fadeOut, sweep, vibrato, tremolo, gain,
     lowPass, lowPass2, highPass2, bandPass, lowPassSweep,
-    mix, addInto, concat, silence,
+    mix, addInto, concat, silence, polyBlep, distortion,
 } = require('./audio_primitives');
 const { pluckedString, waveguideTube, fmOperator, fm4op, detunedStack, pianoModel } = require('./osc_models');
 const { smoothNoise1D, mulberry32 } = require('./humanize');
@@ -196,6 +196,7 @@ function pad(midi, durBeats, velocity = 100, bpm = 120, ctx) {
         voices: 5,
         detuneCents: 16,
         waveform: 'sawtooth',
+        hpfTrack: 0.85,   // tighten the low end / remove inter-voice mud
         rng: ctx && ctx.rng,
     });
     // Slow filter sweep: opens slightly during note
@@ -214,6 +215,7 @@ function analogBrass(midi, durBeats, velocity = 100, bpm = 120, ctx) {
         voices: 4,
         detuneCents: 8,
         waveform: 'sawtooth',
+        hpfTrack: 0.8,
         rng: ctx && ctx.rng,
     });
     // Brass: filter envelope tracks velocity — louder = brighter
@@ -264,24 +266,359 @@ function subBass(midi, durBeats, velocity = 100, bpm = 120, ctx) {
     return out;
 }
 
+// Analog-style mono lead. Redesigned (2026-07) after the 3-saw ±12-cent unison
+// version kept reading as "synth strings" — static wide unison beats slowly,
+// which is exactly the string-machine effect. Applied lead-design principles:
+//   - Restrained 2-osc architecture: saw + PWM pulse detuned only ~5 cents
+//     (different waveforms mask coherent beating), + square sub an octave down
+//     for body/focus. "Detune until you just hear it, then back off."
+//   - PWM (slow pulse-width LFO) supplies the movement a lead needs WITHOUT
+//     unison beating.
+//   - Per-note resonant filter ENVELOPE (bright attack decaying ~90 ms to a
+//     velocity/key-tracked sustain cutoff) instead of a static LPF.
+//   - DELAYED vibrato: ~6 Hz, silent for the first ~180 ms then ramping in —
+//     constant-from-onset vibrato is a machine tell.
+//   - Analog VCO settle: +10 cents drifting to pitch over the first 25 ms.
+//   - Mild tanh drive after the filter for harmonics/glue.
 function synthLead(midi, durBeats, velocity = 100, bpm = 120, ctx) {
     const freq = freqFromCtx(midi, ctx);
     const vel = velocity / 127;
     const gate = beatsToSec(durBeats, bpm);
-    const total = gate + 0.18;
-    const out = detunedStack(freq, total, {
-        voices: 3, detuneCents: 12, waveform: 'sawtooth', rng: ctx && ctx.rng,
-    });
-    lowPass2(out, applyCutoffMult(2800 + vel * 3500, ctx), 1.3);
-    adsrExp(out, attackMs(8, ctx), 0.15, 0.82, 0.2, 3);
-    // Subtle vibrato
-    const vibed = vibrato(out, 6, 0.002);
-    for (let i = 0; i < out.length && i < vibed.length; i++) out[i] = vibed[i];
+    const total = gate + 0.25;
+    const len = Math.floor(total * SAMPLE_RATE);
+    const rng = (ctx && ctx.rng) || Math.random;
+
+    const detuneCents = 5 * (0.8 + rng() * 0.4);           // 4–6 cents
+    const det = Math.pow(2, detuneCents / 1200);
+    const pwmRate = 0.5 + rng() * 0.4;                     // slow PWM drift
+    const vibRate = 5.8 + rng() * 0.8;
+    const out = new Float32Array(len);
+    let p1 = rng(), p2 = rng(), p3 = rng();
+
+    for (let i = 0; i < len; i++) {
+        const t = i / SAMPLE_RATE;
+        const settle = t < 0.025 ? Math.pow(2, (10 * (1 - t / 0.025)) / 1200) : 1;
+        const vibRamp = t < 0.18 ? 0 : Math.min(1, (t - 0.18) / 0.27);
+        const vib = vibRamp > 0
+            ? Math.pow(2, (Math.sin(TWO_PI * vibRate * t) * 6 * vibRamp) / 1200)
+            : 1;
+        const f = freq * settle * vib;
+        const dt1 = f / SAMPLE_RATE;
+        const dt2 = (f * det) / SAMPLE_RATE;
+        const dt3 = (f / 2) / SAMPLE_RATE;
+        // Osc 1: band-limited saw.
+        const saw = (2 * p1 - 1) - polyBlep(p1, dt1);
+        // Osc 2: band-limited PWM pulse (comparator + BLEP at both edges).
+        const width = 0.35 + 0.12 * Math.sin(TWO_PI * pwmRate * t);
+        let pulse = p2 < width ? 1 : -1;
+        pulse += polyBlep(p2, dt2);
+        pulse -= polyBlep(((p2 - width) % 1 + 1) % 1, dt2);
+        pulse -= 2 * width - 1; // remove the pulse's inherent DC (mean of a width-w pulse)
+        // Sub: band-limited square one octave down.
+        let sub = p3 < 0.5 ? 1 : -1;
+        sub += polyBlep(p3, dt3);
+        sub -= polyBlep((p3 + 0.5) % 1, dt3);
+        out[i] = saw * 0.48 + pulse * 0.36 + sub * 0.22;
+        p1 += dt1; if (p1 >= 1) p1 -= 1;
+        p2 += dt2; if (p2 >= 1) p2 -= 1;
+        p3 += dt3; if (p3 >= 1) p3 -= 1;
+    }
+
+    // Filter envelope: velocity-scaled bright peak decaying to a key-tracked
+    // sustain cutoff with a ~90 ms time constant (time-varying biquad, same
+    // approach as lowPassSweep but with an exponential-decay cutoff curve).
+    const kt = Math.pow(freq / 261.6, 0.5); // gentle key tracking
+    const peakC = Math.max(200, Math.min(9000, applyCutoffMult((2600 + vel * 4800) * kt, ctx)));
+    const susC = Math.max(150, Math.min(6500, applyCutoffMult((1100 + vel * 1700) * kt, ctx)));
+    const Q = 1.1;
+    {
+        let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+        for (let i = 0; i < len; i++) {
+            const t = i / SAMPLE_RATE;
+            const cutoff = susC + (peakC - susC) * Math.exp(-t / 0.09);
+            const w0 = TWO_PI * cutoff / SAMPLE_RATE;
+            const sinW0 = Math.sin(w0), cosW0 = Math.cos(w0);
+            const alpha = sinW0 / (2 * Q);
+            const a0 = 1 + alpha;
+            const nb0 = ((1 - cosW0) / 2) / a0;
+            const nb1 = (1 - cosW0) / a0;
+            const na1 = (-2 * cosW0) / a0;
+            const na2 = (1 - alpha) / a0;
+            const x0 = out[i];
+            const y0 = nb0 * x0 + nb1 * x1 + nb0 * x2 - na1 * y1 - na2 * y2;
+            x2 = x1; x1 = x0; y2 = y1; y1 = y0;
+            out[i] = y0;
+        }
+    }
+
+    // Mild drive: adds harmonics back post-filter and glues the three oscs.
+    const driven = distortion(out, 1.8);
+    out.set(driven);
+
+    adsrExp(out, attackMs(3, ctx), 0.06, 0.85, 0.22, 3);
+    gain(out, 0.34 * (0.4 + vel * 0.6));
+    return out;
+}
+
+// ─── Keys / mallets / plucks (additions 2026-07) ───────────
+// Built on the synthLead-redesign lessons: restrained detune, per-note
+// envelopes, delayed/structured modulation, natural decay tails.
+
+// Drawbar organ: additive sines at Hammond drawbar ratios + percussion ping +
+// key click + rotary (shared-phase pitch/amp wobble). Sustains while gated.
+function organ(midi, durBeats, velocity = 100, bpm = 120, ctx) {
+    const freq = freqFromCtx(midi, ctx);
+    const vel = velocity / 127;
+    const gate = beatsToSec(durBeats, bpm);
+    const total = gate + 0.12;
+    const len = Math.floor(total * SAMPLE_RATE);
+    const rng = (ctx && ctx.rng) || Math.random;
+    // 16', 8', 5-1/3', 4', 2-2/3', 2', 1-1/3', 1' — a jazz-ish registration.
+    const ratios = [0.5, 1, 1.5, 2, 3, 4, 6, 8];
+    const levels = [0.5, 0.9, 0.45, 0.55, 0.18, 0.1, 0.05, 0.14];
+    const phases = ratios.map(() => rng() * TWO_PI);
+    const out = new Float32Array(len);
+    for (let i = 0; i < len; i++) {
+        const t = i / SAMPLE_RATE;
+        const rot = Math.sin(TWO_PI * 6.3 * t);
+        const vib = 1 + 0.0035 * rot;                       // rotary pitch wobble
+        const trem = 1 - 0.12 * (0.5 + 0.5 * Math.sin(TWO_PI * 6.3 * t + 1.3));
+        let s = 0;
+        for (let h = 0; h < ratios.length; h++) {
+            const f = freq * ratios[h] * vib;
+            if (f > SAMPLE_RATE * 0.45) continue;
+            phases[h] += TWO_PI * f / SAMPLE_RATE;
+            s += Math.sin(phases[h]) * levels[h];
+        }
+        // Hammond-style percussion ping on the 3rd harmonic, fast decay.
+        s += Math.sin(TWO_PI * freq * 3 * t) * 0.45 * vel * Math.exp(-t * 16);
+        out[i] = s * trem;
+    }
+    // Key click — tiny filtered noise at the very start.
+    for (let i = 0; i < Math.floor(0.003 * SAMPLE_RATE) && i < len; i++) {
+        out[i] += (rng() * 2 - 1) * 0.08 * vel * (1 - i / (0.003 * SAMPLE_RATE));
+    }
+    adsrExp(out, attackMs(4, ctx), 0.01, 1.0, 0.07, 2);
+    gain(out, 0.17 * (0.5 + vel * 0.5));
+    return out;
+}
+
+// Music box: plucked steel comb tooth — inharmonic high partials, bright tick,
+// ~1.5 s ring. Best above C5.
+function musicBox(midi, durBeats, velocity = 100, bpm = 120, ctx) {
+    const freq = freqFromCtx(midi, ctx);
+    const vel = velocity / 127;
+    const total = beatsToSec(durBeats, bpm) + 1.6;
+    const len = Math.floor(total * SAMPLE_RATE);
+    const rng = (ctx && ctx.rng) || Math.random;
+    const partials = [
+        { r: 1,   a: 1.0,              d: 2.8 },
+        { r: 3.9, a: 0.35 + vel * 0.2, d: 5.5 },
+        { r: 9.2, a: 0.12 * vel,       d: 9 },
+    ];
+    const out = new Float32Array(len);
+    for (const p of partials) {
+        const f = freq * p.r;
+        if (f > SAMPLE_RATE * 0.45) continue;
+        const phase0 = rng() * TWO_PI;
+        const step = TWO_PI * f / SAMPLE_RATE;
+        for (let i = 0; i < len; i++) {
+            const t = i / SAMPLE_RATE;
+            out[i] += Math.sin(phase0 + step * i) * p.a * Math.exp(-p.d * t);
+        }
+    }
+    // Pluck tick.
+    for (let i = 0; i < Math.floor(0.002 * SAMPLE_RATE); i++) {
+        out[i] += (rng() * 2 - 1) * 0.15 * vel * (1 - i / (0.002 * SAMPLE_RATE));
+    }
+    highPass2(out, Math.max(180, freq * 0.5), 0.707);
+    adsrExp(out, 0.0008, 0.05, 0.5, total * 0.55, 2.5);
     gain(out, 0.4 * (0.4 + vel * 0.6));
     return out;
 }
 
+// Kalimba: plucked tine — strong fundamental, one high inharmonic partial,
+// soft thumb thump, short warm decay.
+function kalimba(midi, durBeats, velocity = 100, bpm = 120, ctx) {
+    const freq = freqFromCtx(midi, ctx);
+    const vel = velocity / 127;
+    const total = beatsToSec(durBeats, bpm) + 0.9;
+    const len = Math.floor(total * SAMPLE_RATE);
+    const rng = (ctx && ctx.rng) || Math.random;
+    const out = new Float32Array(len);
+    const p2 = 5.9 + (rng() - 0.5) * 0.3;   // tine partial varies tine-to-tine
+    const ph1 = rng() * TWO_PI, ph2 = rng() * TWO_PI;
+    const s1 = TWO_PI * freq / SAMPLE_RATE, s2 = TWO_PI * freq * p2 / SAMPLE_RATE;
+    for (let i = 0; i < len; i++) {
+        const t = i / SAMPLE_RATE;
+        out[i] = Math.sin(ph1 + s1 * i) * Math.exp(-4.2 * t)
+               + (freq * p2 < SAMPLE_RATE * 0.45 ? Math.sin(ph2 + s2 * i) * (0.2 + vel * 0.25) * Math.exp(-13 * t) : 0);
+    }
+    // Thumb thump.
+    const thump = sweep(190, 90, 0.03, 'sine', 'exponential');
+    adsrExp(thump, 0.001, 0.012, 0, 0.018, 4);
+    addInto(out, thump, 0, 0.25 * vel);
+    lowPass2(out, applyCutoffMult(5200, ctx), 0.7);
+    adsrExp(out, attackMs(1.5, ctx), 0.04, 0.6, total * 0.5, 2.5);
+    gain(out, 0.5 * (0.4 + vel * 0.6));
+    return out;
+}
+
+// Steel drum: FM fan with the pan's characteristic octave + shimmer partials.
+function steelDrum(midi, durBeats, velocity = 100, bpm = 120, ctx) {
+    const freq = freqFromCtx(midi, ctx);
+    const vel = velocity / 127;
+    const total = beatsToSec(durBeats, bpm) + 1.1;
+    const ops = [
+        { ratio: 1,    level: 1.0,             envelope: (t) => Math.exp(-2.2 * t) },
+        { ratio: 2,    level: 0.55,            envelope: (t) => Math.exp(-3.2 * t) },
+        { ratio: 2.38, level: 0.28 + vel * 0.2, envelope: (t) => Math.exp(-4.5 * t) },
+        { ratio: 3.8,  level: 0.9 + vel * 0.6,  envelope: (t) => Math.exp(-9 * t) },
+    ];
+    const out = fm4op('fan', ops, freq, total);
+    lowPass2(out, applyCutoffMult(6500, ctx), 0.8);
+    adsrExp(out, attackMs(2, ctx), 0.08, 0.4, total * 0.5, 3);
+    gain(out, 0.4 * (0.4 + vel * 0.6));
+    return out;
+}
+
+// EDM pluck: two lightly-detuned saws through a fast filter-envelope decay.
+// The trance/pop "pluck" — percussive front, quickly darkening tail.
+function pluckSynth(midi, durBeats, velocity = 100, bpm = 120, ctx) {
+    const freq = freqFromCtx(midi, ctx);
+    const vel = velocity / 127;
+    const total = beatsToSec(durBeats, bpm) + 0.5;
+    const len = Math.floor(total * SAMPLE_RATE);
+    const rng = (ctx && ctx.rng) || Math.random;
+    const det = Math.pow(2, (6 * (0.8 + rng() * 0.4)) / 1200);
+    const out = new Float32Array(len);
+    let p1 = rng(), p2 = rng();
+    const dt1 = freq / SAMPLE_RATE, dt2 = freq * det / SAMPLE_RATE;
+    for (let i = 0; i < len; i++) {
+        out[i] = ((2 * p1 - 1) - polyBlep(p1, dt1)) * 0.55
+               + ((2 * p2 - 1) - polyBlep(p2, dt2)) * 0.45;
+        p1 += dt1; if (p1 >= 1) p1 -= 1;
+        p2 += dt2; if (p2 >= 1) p2 -= 1;
+    }
+    // Fast filter-envelope decay (~110 ms): the defining pluck gesture.
+    const peakC = Math.max(300, Math.min(9500, applyCutoffMult(3500 + vel * 4500, ctx)));
+    const susC = Math.max(150, Math.min(2000, applyCutoffMult(450 + vel * 350, ctx)));
+    let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    const Q = 1.0;
+    for (let i = 0; i < len; i++) {
+        const t = i / SAMPLE_RATE;
+        const cutoff = susC + (peakC - susC) * Math.exp(-t / 0.11);
+        const w0 = TWO_PI * cutoff / SAMPLE_RATE;
+        const sinW0 = Math.sin(w0), cosW0 = Math.cos(w0);
+        const alpha = sinW0 / (2 * Q);
+        const a0 = 1 + alpha;
+        const nb0 = ((1 - cosW0) / 2) / a0, nb1 = (1 - cosW0) / a0;
+        const na1 = (-2 * cosW0) / a0, na2 = (1 - alpha) / a0;
+        const x0 = out[i];
+        const y0 = nb0 * x0 + nb1 * x1 + nb0 * x2 - na1 * y1 - na2 * y2;
+        x2 = x1; x1 = x0; y2 = y1; y1 = y0;
+        out[i] = y0;
+    }
+    adsrExp(out, attackMs(1.5, ctx), 0.12, 0.25, 0.3, 3.5);
+    gain(out, 0.5 * (0.4 + vel * 0.6));
+    return out;
+}
+
+// Acid bass (303-style): mono BLEP saw, high-resonance filter envelope, drive.
+function acidBass(midi, durBeats, velocity = 100, bpm = 120, ctx) {
+    const freq = freqFromCtx(midi, ctx);
+    const vel = velocity / 127;
+    const gate = beatsToSec(durBeats, bpm);
+    const total = gate + 0.12;
+    const len = Math.floor(total * SAMPLE_RATE);
+    const rng = (ctx && ctx.rng) || Math.random;
+    const out = new Float32Array(len);
+    let p = rng();
+    const dt = freq / SAMPLE_RATE;
+    for (let i = 0; i < len; i++) {
+        out[i] = (2 * p - 1) - polyBlep(p, dt);
+        p += dt; if (p >= 1) p -= 1;
+    }
+    const peakC = Math.max(200, Math.min(6000, applyCutoffMult(500 + vel * 2600, ctx)));
+    const susC = Math.max(80, Math.min(900, applyCutoffMult(160 + vel * 260, ctx)));
+    let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    const Q = 3.2;                                       // the squelch
+    for (let i = 0; i < len; i++) {
+        const t = i / SAMPLE_RATE;
+        const cutoff = susC + (peakC - susC) * Math.exp(-t / 0.13);
+        const w0 = TWO_PI * cutoff / SAMPLE_RATE;
+        const sinW0 = Math.sin(w0), cosW0 = Math.cos(w0);
+        const alpha = sinW0 / (2 * Q);
+        const a0 = 1 + alpha;
+        const nb0 = ((1 - cosW0) / 2) / a0, nb1 = (1 - cosW0) / a0;
+        const na1 = (-2 * cosW0) / a0, na2 = (1 - alpha) / a0;
+        const x0 = out[i];
+        const y0 = nb0 * x0 + nb1 * x1 + nb0 * x2 - na1 * y1 - na2 * y2;
+        x2 = x1; x1 = x0; y2 = y1; y1 = y0;
+        out[i] = y0;
+    }
+    const driven = distortion(out, 3);
+    out.set(driven);
+    // The fast-modulated high-Q biquad pumps near-DC; strip it below the audio band.
+    highPass2(out, 28, 0.707);
+    adsrExp(out, attackMs(2, ctx), 0.08, 0.65, 0.1, 3);
+    gain(out, 0.5 * (0.5 + vel * 0.5));
+    return out;
+}
+
+// Palm-muted electric guitar: heavily-damped Karplus-Strong + drive + cab-ish LPF.
+function mutedGuitar(midi, durBeats, velocity = 100, bpm = 120, ctx) {
+    const freq = freqFromCtx(midi, ctx);
+    const vel = velocity / 127;
+    const total = beatsToSec(durBeats, bpm) + 0.45;
+    const out = pluckedString(freq, total, {
+        damping: 0.75, brightness: 0.35 + vel * 0.25, exciter: 'noise',
+        t60: 0.28 + vel * 0.15, pickPos: 0.12, rng: ctx && ctx.rng,
+    });
+    // Body thump gives the chug its chest.
+    const thump = sweep(160, 85, 0.04, 'sine', 'exponential');
+    adsrExp(thump, 0.001, 0.015, 0, 0.025, 4);
+    addInto(out, thump, 0, 0.35 * vel);
+    const driven = distortion(out, 2.5 + vel * 2);
+    out.set(driven);
+    lowPass2(out, applyCutoffMult(2600 + vel * 800, ctx), 0.8);
+    adsrExp(out, attackMs(1, ctx), 0.05, 0.6, 0.2, 3);
+    gain(out, 0.5 * (0.4 + vel * 0.6));
+    return out;
+}
+
 // ─── Wind / vocal ──────────────────────────────────────────
+
+// Human-style whistle: near-pure sine, pitch scoop into the note, delayed
+// vibrato, soft breath-noise bed.
+function whistle(midi, durBeats, velocity = 100, bpm = 120, ctx) {
+    const freq = freqFromCtx(midi, ctx);
+    const vel = velocity / 127;
+    const gate = beatsToSec(durBeats, bpm);
+    const total = gate + 0.18;
+    const len = Math.floor(total * SAMPLE_RATE);
+    const rng = (ctx && ctx.rng) || Math.random;
+    const vibRate = 5.2 + rng() * 0.9;
+    const out = new Float32Array(len);
+    let ph = rng() * TWO_PI, ph2 = rng() * TWO_PI;
+    for (let i = 0; i < len; i++) {
+        const t = i / SAMPLE_RATE;
+        const scoop = t < 0.04 ? Math.pow(2, (-35 * (1 - t / 0.04)) / 1200) : 1;
+        const vibRamp = t < 0.22 ? 0 : Math.min(1, (t - 0.22) / 0.3);
+        const vib = vibRamp > 0 ? Math.pow(2, (Math.sin(TWO_PI * vibRate * t) * 18 * vibRamp) / 1200) : 1;
+        const f = freq * scoop * vib;
+        ph += TWO_PI * f / SAMPLE_RATE;
+        ph2 += TWO_PI * f * 2 / SAMPLE_RATE;
+        out[i] = Math.sin(ph) + Math.sin(ph2) * 0.07;
+    }
+    // Breath bed around the fundamental's octave.
+    const breath = whiteNoise(total, 1.0, rng);
+    bandPass(breath, Math.min(freq * 2, 9000), 2.2);
+    for (let i = 0; i < len; i++) out[i] += breath[i] * 0.05 * (0.5 + vel * 0.5);
+    adsrExp(out, attackMs(30, ctx), 0.1, 0.9, 0.14, 2);
+    gain(out, 0.35 * (0.4 + vel * 0.6));
+    return out;
+}
 
 function flute(midi, durBeats, velocity = 100, bpm = 120, ctx) {
     const freq = freqFromCtx(midi, ctx);
@@ -342,33 +679,49 @@ function choirAh(midi, durBeats, velocity = 100, bpm = 120, ctx) {
 
 function kick(midi, durBeats, velocity = 100, bpm = 120, ctx) {
     const vel = velocity / 127;
-    // Body: 130 Hz → 50 Hz exponential pitch drop, ~250 ms long.
-    const body = sweep(150 + vel * 60, 45, 0.28, 'sine', 'exponential');
-    adsrExp(body, 0.001, 0.06, 0, 0.22, 3);
+    // Body: pitch drops from a brief >1-octave attack jump down to the ~48 Hz
+    // resonant pitch (808 circuit analysis: the EG raises the resonator center
+    // by more than an octave for the first few ms, which is what makes the
+    // attack "knock"). A short initial sweep + a longer body sweep approximates
+    // the attack-jump-then-sigh shape better than a single sweep.
+    const punch = sweep(420 + vel * 120, 90, 0.012, 'sine', 'exponential');
+    adsrExp(punch, 0.0005, 0.006, 0, 0.006, 4);
+    const body = sweep(95, 45, 0.30, 'sine', 'exponential');
+    adsrExp(body, 0.001, 0.07, 0, 0.22, 3);
     // Click: short noise burst, lowpassed
     const click = whiteNoise(0.005, 0.7 * vel, ctx && ctx.rng);
     lowPass2(click, 4500, 1.0);
     fadeOut(click, 0.005);
-    const out = new Float32Array(Math.floor(0.28 * SAMPLE_RATE));
+    const out = new Float32Array(Math.floor(0.30 * SAMPLE_RATE));
     for (let i = 0; i < body.length; i++) out[i] = body[i] * 0.9 * (0.6 + vel * 0.4);
+    for (let i = 0; i < punch.length && i < out.length; i++) out[i] += punch[i] * 0.5 * (0.5 + vel * 0.5);
     for (let i = 0; i < click.length && i < out.length; i++) out[i] += click[i] * 0.6;
     return out;
 }
 
 function snare(midi, durBeats, velocity = 100, bpm = 120, ctx) {
     const vel = velocity / 127;
-    // Tonal body — short pitched thump
-    const body = sweep(220, 170, 0.12, 'triangle', 'exponential');
-    adsrExp(body, 0.001, 0.05, 0, 0.07, 3);
-    // Noise — the snares themselves, bandpassed, longer decay
+    // Two inharmonic decaying tonal modes (~180/330 Hz, the 909-style detuned
+    // pair) instead of one triangle sweep — the second mode decays faster, which
+    // gives the "crack + body" separation a single sweep can't. Each gets a tiny
+    // downward pitch sweep on the attack for fatness.
     const noiseLen = 0.18;
+    const len = Math.floor(noiseLen * SAMPLE_RATE);
+    const mode1 = sweep(200, 180, 0.14, 'sine', 'exponential');
+    adsrExp(mode1, 0.001, 0.05, 0, 0.09, 3);
+    const mode2 = sweep(360, 330, 0.08, 'sine', 'exponential');
+    adsrExp(mode2, 0.001, 0.03, 0, 0.05, 3);
+    // Noise — the snares themselves, bandpassed, longer decay
     const noise = whiteNoise(noiseLen, 1.0, ctx && ctx.rng);
     bandPass(noise, 2200, 0.9);
     adsrExp(noise, 0.0005, 0.04, 0.15, 0.14, 2.5);
-    // Mix
-    const len = Math.floor(noiseLen * SAMPLE_RATE);
+    // Mix — body modes coupled, noise on top
     const out = new Float32Array(len);
-    for (let i = 0; i < body.length && i < len; i++) out[i] += body[i] * 0.45 * (0.6 + vel * 0.4);
+    const bodyGain = 0.42 * (0.6 + vel * 0.4);
+    for (let i = 0; i < len; i++) {
+        if (i < mode1.length) out[i] += mode1[i] * bodyGain;
+        if (i < mode2.length) out[i] += mode2[i] * bodyGain * 0.6;
+    }
     for (let i = 0; i < noise.length && i < len; i++) out[i] += noise[i] * 0.55 * (0.6 + vel * 0.4);
     return out;
 }
@@ -420,6 +773,25 @@ function clap(midi, durBeats, velocity = 100, bpm = 120, ctx) {
     return out;
 }
 
+// Crash cymbal: long bright noise wash with two shimmer bands and a slow
+// spectral settle (band centers drift down as it rings out).
+function crash(midi, durBeats, velocity = 100, bpm = 120, ctx) {
+    const vel = velocity / 127;
+    const total = 1.9;
+    const out = whiteNoise(total, 1.0, ctx && ctx.rng);
+    highPass2(out, 3200, 0.707);
+    const shimmerA = Float32Array.from(out);
+    bandPass(shimmerA, 7500, 0.8);
+    const shimmerB = Float32Array.from(out);
+    bandPass(shimmerB, 11500, 1.2);
+    for (let i = 0; i < out.length; i++) {
+        out[i] = out[i] * 0.5 + shimmerA[i] * 0.45 + shimmerB[i] * 0.3;
+    }
+    adsrExp(out, 0.0008, 0.25, 0.25, 1.5, 2.2);
+    gain(out, 0.4 * (0.5 + vel * 0.5));
+    return out;
+}
+
 function shaker(midi, durBeats, velocity = 100, bpm = 120, ctx) {
     const vel = velocity / 127;
     const out = whiteNoise(0.09, 1.0, ctx && ctx.rng);
@@ -434,15 +806,15 @@ function shaker(midi, durBeats, velocity = 100, bpm = 120, ctx) {
 
 const VOICES = {
     // Keyboards & melodic percussion
-    piano, electricPiano, bell, marimba, vibraphone,
+    piano, electricPiano, bell, marimba, vibraphone, organ, musicBox, kalimba, steelDrum,
     // Strings (plucked)
-    pluckString, nylonGuitar,
+    pluckString, nylonGuitar, mutedGuitar,
     // Synth
-    pad, analogBrass, synthBass, subBass, synthLead,
+    pad, analogBrass, synthBass, subBass, synthLead, pluckSynth, acidBass,
     // Wind / vocal
-    flute, clarinet, choirAh,
+    flute, clarinet, choirAh, whistle,
     // Drums
-    kick, snare, hat, tom, clap, shaker,
+    kick, snare, hat, tom, clap, shaker, crash,
 };
 
 // One-line descriptions surfaced to the SKILL.md voice catalog.
@@ -458,10 +830,19 @@ const VOICE_DESCRIPTIONS = {
     analogBrass: 'Detuned saws + velocity-tracking filter. Punchy fanfare voice.',
     synthBass: 'Two saws + sub sine + filter envelope. Punchy electronic bass.',
     subBass: 'Pure sine with hint of triangle harmonic. Deep, clean weight under 220 Hz.',
-    synthLead: 'Three-saw stack, resonant LPF, light vibrato. Cuts through pads.',
+    synthLead: 'Analog-style lead: saw + PWM pulse (~5c detune) + sub, filter envelope, delayed vibrato, mild drive.',
     flute: 'Digital-waveguide tube (open ends). Breathy attack; clean fundamental.',
     clarinet: 'Digital-waveguide tube (closed-open). Odd-only harmonics; woody.',
     choirAh: 'Detuned saw stack + "a" formant + vibrato. Vocal-pad sound.',
+    organ: 'Additive drawbar organ + rotary wobble + percussion ping. Funk/gospel/rnb comping.',
+    musicBox: 'Plucked steel comb tooth — inharmonic sparkle, ~1.5 s ring. Cute/dreamy; best above C5.',
+    kalimba: 'Plucked tine with thumb thump. Lofi/cute ostinatos.',
+    steelDrum: 'FM pan with octave + shimmer partials. Tropical/island.',
+    pluckSynth: 'Two-saw pluck with fast filter decay. Trance/pop/EDM arpeggios.',
+    acidBass: '303-style mono saw + high-resonance filter envelope + drive. Squelchy electronic bass.',
+    mutedGuitar: 'Palm-muted Karplus-Strong + drive. Pop/rock/funk chug riffs.',
+    whistle: 'Near-pure sine with pitch scoop, delayed vibrato, breath bed. Playful melodies.',
+    crash: 'Long bright cymbal wash with shimmer bands. Section starts / fills.',
     kick: 'Pitch-dropping sine + click. Drum-machine kick; tune midi up/down for size.',
     snare: 'Triangle thump + bandpassed noise. Classic punchy snare.',
     hat: 'Bandpassed white noise. midi ≥ 49 → open (long); else closed (short).',
@@ -474,11 +855,11 @@ module.exports = {
     VOICES,
     VOICE_DESCRIPTIONS,
     // Direct re-exports for ergonomic require()
-    piano, electricPiano, bell, marimba, vibraphone,
-    pluckString, nylonGuitar,
-    pad, analogBrass, synthBass, subBass, synthLead,
-    flute, clarinet, choirAh,
-    kick, snare, hat, tom, clap, shaker,
+    piano, electricPiano, bell, marimba, vibraphone, organ, musicBox, kalimba, steelDrum,
+    pluckString, nylonGuitar, mutedGuitar,
+    pad, analogBrass, synthBass, subBass, synthLead, pluckSynth, acidBass,
+    flute, clarinet, choirAh, whistle,
+    kick, snare, hat, tom, clap, shaker, crash,
     // Helpers
     midiToFreq, beatsToSec,
 };

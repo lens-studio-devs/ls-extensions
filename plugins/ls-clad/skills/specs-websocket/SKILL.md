@@ -10,7 +10,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # WebSocket API — Real-Time Connections
 
-**Requirements:** Lens Studio v5.4+, Spectacles OS v5.059+. Add `InternetModule` to project. Device only (Preview requires Device Type Override = Specs).
+**Requirements:** Lens Studio v5.4+, Snap OS v5.059+. Add `InternetModule` to project. Device only (Preview requires Device Type Override = SPECS 27).
 
 > `wss://` (secure) → publishable. `ws://` (insecure) → requires Experimental APIs, testing only.
 

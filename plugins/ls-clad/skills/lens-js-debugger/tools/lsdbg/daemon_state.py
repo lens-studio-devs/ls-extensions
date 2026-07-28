@@ -109,7 +109,7 @@ class TargetSession:
     attached_at_iso: str = ""
 
     # Raw CDP event ring buffer + seq counter. Feeds backtrace/locals/health
-    # (last Debugger.paused) and the --wait-paused / --wait-idle event scans.
+    # (last Debugger.paused) and the --wait-paused event scans.
     event_buffer: deque = field(default_factory=lambda: deque(maxlen=MAX_BUFFERED_EVENTS))
     next_seq: int = 0
 
@@ -170,16 +170,6 @@ class _WaitState:
     # instead, so the agent gets the pause it asked for rather than a
     # spurious timeout.
     since_seq: int = 0
-
-
-@dataclass
-class _WaitIdleState:
-    idle_threshold_ms: int
-    idle_timer_task: asyncio.Task[None]
-    hard_deadline_task: asyncio.Task[None]
-    events_observed: int = 0
-    started_monotonic: float = 0.0
-    last_event_monotonic: float = 0.0
 
 
 @dataclass

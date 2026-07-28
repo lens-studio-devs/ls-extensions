@@ -32,7 +32,7 @@ stereoCameraModule: StereoCameraModule
 
 ```js
 // OLD
-// Direct StereoCameraModule access (varies by lens)
+// Direct StereoCameraModule access (varies by Lens)
 
 // NEW
 let cameraModule = require('LensStudio:CameraModule');

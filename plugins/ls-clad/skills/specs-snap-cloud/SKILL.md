@@ -171,7 +171,7 @@ supabase --profile snap projects list
 
 # Project selection strategy:
 # - If only one project exists, use it.
-# - If multiple projects exist, prefer the one whose name matches the lens/feature being built.
+# - If multiple projects exist, prefer the one whose name matches the Lens/feature being built.
 # - If ambiguous, ask the user which project to use — do NOT silently pick one.
 
 # Set the project ref (e.g. "xcuslfeoetnflddtndmx")
@@ -221,7 +221,7 @@ Reference this file in any Snap Cloud script using `requireAsset('../SupabasePro
 Skip the Dashboard SQL Editor. Write migrations locally and push:
 
 ```bash
-# Initialize Supabase local config (once per lens project)
+# Initialize Supabase local config (once per Lens project)
 supabase --profile snap init
 
 # Link to the remote project
@@ -386,7 +386,7 @@ Run the full Supabase stack on your machine for fast iteration — no cloud cost
 ### Start the local stack
 
 ```bash
-# Create a new local project directory (one-time per lens project)
+# Create a new local project directory (one-time per Lens project)
 mkdir my-lens-local && cd my-lens-local
 supabase --profile snap init        # creates supabase/config.toml
 

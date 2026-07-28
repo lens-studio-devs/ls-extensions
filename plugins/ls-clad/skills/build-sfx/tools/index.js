@@ -16,6 +16,7 @@ const mix_bus = require('./mix_bus');
 const ir_generator = require('./ir_generator');
 const granular = require('./granular');
 const transient_designer = require('./transient_designer');
+const sfx_presets = require('./sfx_presets');
 const { WavBuilder } = require('./wav_builder');
 
 module.exports = {
@@ -29,6 +30,7 @@ module.exports = {
     ir_generator,
     granular,
     transient_designer,
+    sfx_presets,
     // WAV writer
     WavBuilder,
     // Flat re-export of audio_primitives for terse SFX recipes

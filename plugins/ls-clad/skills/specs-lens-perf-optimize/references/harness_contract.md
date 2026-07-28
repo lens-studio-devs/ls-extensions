@@ -44,7 +44,7 @@ The orchestrator appends three things to the existing class (between an explicit
       const offset = this.frameMarkerOffsetsSeconds[i];
       const ev = this.createEvent("DelayedCallbackEvent") as DelayedCallbackEvent;
       ev.bind(() => {
-        // getTime() is absolute seconds since lens start — log the actual arrival
+        // getTime() is absolute seconds since Lens start — log the actual arrival
         // time so the orchestrator can detect markers that fired late. Use
         // Math.floor, not `| 0`: the bitwise op coerces the value to a 32-bit
         // signed int, which silently truncates/wraps for large millisecond values.

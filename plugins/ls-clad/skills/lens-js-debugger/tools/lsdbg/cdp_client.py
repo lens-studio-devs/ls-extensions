@@ -45,7 +45,6 @@ class CdpClient:
         self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
         self._reader_task: Optional[asyncio.Task[None]] = None
         self._event_handler: Optional[EventHandler] = None
-        self._verbose = False
         self._command_timeout_s = DEFAULT_COMMAND_TIMEOUT_S
         self._closed = False  # fail-fast after disconnect
         self._disconnect_diagnostics: Optional[Callable[[], dict[str, Any]]] = None
@@ -54,9 +53,6 @@ class CdpClient:
 
     def set_event_handler(self, handler: Optional[EventHandler]) -> None:
         self._event_handler = handler
-
-    def set_verbose(self, verbose: bool) -> None:
-        self._verbose = verbose
 
     def set_command_timeout(self, timeout_s: float) -> None:
         self._command_timeout_s = timeout_s
@@ -120,9 +116,6 @@ class CdpClient:
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._pending[msg_id] = future
 
-        if self._verbose:
-            self._log_protocol(">>>", envelope)
-
         try:
             await self._ws.send(json.dumps(envelope))
         except Exception:  # websockets.ConnectionClosed and any transport issue
@@ -159,12 +152,7 @@ class CdpClient:
         try:
             msg = json.loads(text)
         except json.JSONDecodeError:
-            if self._verbose:
-                sys.stderr.write(f"[cdp] <<< {text}\n")
             return
-
-        if self._verbose:
-            self._log_protocol("<<<", msg)
 
         if isinstance(msg, dict) and isinstance(msg.get("id"), int):
             future = self._pending.pop(msg["id"], None)
@@ -217,11 +205,3 @@ class CdpClient:
         except Exception:
             return {}
         return extra if isinstance(extra, dict) else {}
-
-    def _log_protocol(self, direction: str, msg: Any) -> None:
-        try:
-            pretty = json.dumps(msg, indent=2, ensure_ascii=False)
-        except (TypeError, ValueError):
-            pretty = str(msg)
-        sys.stderr.write(f"[cdp] {direction}\n{pretty}\n")
-        sys.stderr.flush()

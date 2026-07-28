@@ -38,7 +38,19 @@ const ENGINE = '<ABSOLUTE_PATH_TO_BUILD_MUSIC>/tools';
 const m = require(ENGINE);
 ```
 
-This gives you the full audio engine (`m.audio_primitives`, `m.synth_voices`, `m.mix_bus`, etc.) plus music-only modules: `m.pattern`, `m.arrangement`, `m.renderer`, with convenience aliases `m.parseMini`, `m.scale`, `m.stack`, `m.mask`, `m.track`, `m.render`, `m.WavBuilder`.
+This gives you the full audio engine (`m.audio_primitives`, `m.synth_voices`, `m.mix_bus`, etc.) plus music-only modules: `m.pattern`, `m.arrangement`, `m.renderer`, with convenience aliases `m.parseMini`, `m.scale`, `m.stack`, `m.mask`, `m.track`, `m.render`, `m.suggestTempo`, `m.WavBuilder`.
+
+## Variety mandate — no two experiences may share a soundtrack
+
+The #1 historical failure of this skill: every generated piece sounded the same, because scripts copied the constants out of the worked examples below. The composers (`composeChords`, `composeMelody`, `composeDrums`, `composeBass`, `composeArpeggio`) all pick a **fresh random seed when you omit `seed`** — so the default behavior is already varied. Keep it that way:
+
+1. **Do NOT pass `seed`** on the compose helpers unless you are re-rendering to reproduce/pin a take the user liked. Never copy a seed value from an example.
+2. **Tempo: use `m.suggestTempo(genre)`** (a seeded pick inside the genre's idiomatic BPM range) instead of copying a BPM. Override only when the user asked for a tempo/feel ("slow", "driving").
+3. **Vary the voice palette.** Don't default to `electricPiano`+`flute` every time. Genre-appropriate alternates: lofi/jazz comp → `electricPiano` / `piano` / `vibraphone`; funk/rnb comp → `organ` / `electricPiano` + `mutedGuitar` riffs; pads → `pad` / `choirAh` (sparingly); leads → `flute` / `clarinet` / `synthLead` / `whistle` / `marimba` / `pluckString`; cute/dreamy → `musicBox` / `kalimba` / `steelDrum`; EDM arps → `pluckSynth`; bass → `subBass` / `synthBass` / `acidBass` (electronic squelch).
+4. **Vary structural knobs**: melody `contour` and `notesPerBar`, `chordEvents` `stagger`, arpeggio `style`, drum `energy`, arrangement section choices.
+5. **Log the meta** (`meta` from `composeChords`, `.meta` on `composeDrums`) in your script output so a liked result can be reproduced later by pinning those seeds.
+
+Two lenses with the same vibe should share a *genre*, not a *recording*.
 
 ## Pipeline overview
 
@@ -98,21 +110,23 @@ Tip: when degrees go past the top of the scale, they wrap to the next octave aut
 
 ## Chord progressions
 
-**Default path — `m.composeChords({ genre, seed })`.** Picks a progression, key, voicing strategy, and chord-extension policy from genre-appropriate pools. Two requests with the same vibe but different seeds produce **genuinely different chords** (different key, different changes, different voicing), not just the same chord with different effects on top.
+**Default path — `m.composeChords({ genre })`.** Picks a progression, key, voicing strategy, and chord-extension policy from genre-appropriate pools. Every seedless run produces **genuinely different chords** (different key, different changes, different voicing), not just the same chord with different effects on top.
 
 ```js
-const { chords, meta } = m.composeChords({ genre: 'lofi-jazz', seed: 42 });
+const { chords, meta } = m.composeChords({ genre: 'lofi-jazz' });
 // chords = [{ root, type, notes: [midi...] }, ...]  — already voiced and voice-led
-// meta   = { genre, seed, scale, key, progression, voicing, extension }
+// meta   = { genre, seed, scale, key, progression, voicing, extension } — log it!
 ```
 
-Pass an integer `seed` if you want reproducibility (regenerating the same piece, or pinning the harmony while iterating on rhythm/mix). Omit it for a fresh random pick each run.
+Omit `seed` for a fresh pick each run (the default you want). Pass an integer `seed` only for reproducibility — regenerating a piece the user liked, or pinning the harmony while iterating on rhythm/mix (`meta.seed` from the logged run is the value to pin).
 
-Available genre tags: `pop`, `sad-pop`, `lofi`, `lofi-jazz`, `jazz`, `cinematic-epic`, `cinematic-melancholy`, `dreamy`, `folk`, `edm-uplift`, `dark`, `rnb`. Unknown tags fall back to `pop`. Pick the *closest* tag — vibes are described to the user in their own words, but the genre tag is what determines harmonic flavor.
+Available genre tags: `pop`, `sad-pop`, `lofi`, `lofi-jazz`, `jazz`, `cinematic-epic`, `cinematic-melancholy`, `dreamy`, `folk`, `edm-uplift`, `dark`, `rnb`, `synthwave`, `funk`, `ambient`. Unknown tags fall back to `pop`. Pick the *closest* tag — vibes are described to the user in their own words, but the genre tag is what determines harmonic flavor.
+
+**Tempo — `m.suggestTempo(genre)`** returns a BPM picked inside the genre's idiomatic range (e.g. lofi 68–86, edm-uplift 122–130, ambient 50–70). Use it instead of copying a BPM from an example; pass `(genre, seed)` to pin.
 
 To pin one axis while letting the helper vary the rest (e.g. force C major but vary the progression):
 ```js
-const { chords } = m.composeChords({ genre: 'pop', seed, key: 'C4', scale: 'major' });
+const { chords } = m.composeChords({ genre: 'pop', key: 'C4', scale: 'major' });
 ```
 
 Other overrides: `progression` (array of roman numerals or named-progression string), `voicing` (`closeVoiced` / `spread` / `drop2` / `rootless7th` / `shellVoicing` / `wideOpen`), `extension` (`none` / `7` / `9` / `add9` / `sus2` / `sus4`), `voiceLeading: false` to disable octave-rotation voice-leading.
@@ -120,7 +134,7 @@ Other overrides: `progression` (array of roman numerals or named-progression str
 **To turn chords into comp events: use `m.chordEvents(chords, { voice, bars })`.** It picks the right note duration per voice — long-sustain voices (`pad`, `choirAh`) get a short gate (~45% of the bar) so their release tails decay *before* the next chord lands; piano-family voices get ~85%; plucks/mallets get the full bar. Hand-rolling `beats: 4` on a sustained pad chord causes chord N's release to bleed into chord N+1, producing accidental composite harmonies — `chordEvents` fixes this.
 
 ```js
-const { chords } = m.composeChords({ genre: 'lofi-jazz', seed: 42, voice: 'electricPiano' });
+const { chords } = m.composeChords({ genre: 'lofi-jazz', voice: 'electricPiano' });
 const compEvents = m.chordEvents(chords, { voice: 'electricPiano', bars: 8 });
 const compTrack = m.track('comp', 'electricPiano', compEvents, { fx: { reverb: 'mediumRoom', gain: 0.45 } });
 ```
@@ -152,7 +166,7 @@ For a tonal piece, the foreground layer (melody / lead) usually sits on top of t
 A real melodic line, NOT a fixed motif looped. Strong beats (beat 1 and 3 of every bar) are anchored on the *current chord's* tones — so the melody never clashes with the harmony. Weak beats use scale tones near the previous pitch for smooth stepwise motion. Phrase contour (`rising` / `falling` / `arch` / `descend-ascend`) shapes the trajectory across the whole piece.
 
 ```js
-const { chords, meta } = m.composeChords({ genre: 'cinematic-epic', seed: 42, voice: 'pad' });
+const { chords, meta } = m.composeChords({ genre: 'cinematic-epic', voice: 'pad' });
 const keyMatch = meta.key.match(/^([A-Ga-g][#b]?)(-?\d+)$/);
 const scaleRoot = keyMatch[1] + (parseInt(keyMatch[2]) + 1);  // melody an octave above key
 
@@ -160,7 +174,7 @@ const melodyEvents = m.composeMelody({
     chords, bars: 8, notesPerBar: 4,
     octaveShift: 1, contour: 'arch',
     scale: meta.scale, scaleRoot,
-    seed: 100, restProbability: 0.18,
+    restProbability: 0.18,
 });
 const melodyTrack = m.track('lead', 'flute', melodyEvents, {
     fx: { hpf: 400, lpf: 5000, reverb: 'largeHall', gain: 0.4 },
@@ -189,6 +203,34 @@ m.scale(melody, meta.scale, scaleRoot);
 ```
 **Warning:** if the chord progression is `composeChords`-generated and changes underneath, a fixed scale-degree melody can clash on chord 2/3/4 because the pitches you picked may not be chord tones for the later chords. Either use `composeMelody` (which anchors automatically) or pick scale degrees that happen to be chord tones for every chord in the progression.
 
+## Rhythm section — bass & drums (USE THESE, don't hand-roll)
+
+Two helpers generate a genre-correct rhythm section. Use them instead of hand-writing basslines (which clash with chord qualities) or drum patterns (string drum names like `'bd'` render **silent** — the renderer only plays numeric-MIDI events).
+
+**`m.composeBass({ chords, genre, style, bars })`** → a numeric-MIDI events array for a bass voice. Notes are chord-tone-correct and folded into the bass register (~E1–D3) regardless of key. Seedless runs vary the line (pickups, octave jumps, re-strikes, walking-tone choices); `variation: 0..1` (default 0.35) scales how often, `seed` pins a take.
+
+```js
+const { chords } = m.composeChords({ genre: 'lofi-jazz' });
+const bass = m.composeBass({ chords, genre: 'lofi-jazz', bars: 8 });
+const bassTrack = m.track('bass', 'subBass', bass, { fx: { lpf: 240, gain: 0.7 } });
+```
+
+Styles (omit `style` to get the genre default): `root`, `root-fifth`, `walking` (jazz — root on 1, chord tones on 2-3, chromatic/diatonic approach into the next chord on 4), `offbeat-8ths` (house/EDM/synthwave), `syncopated` (funk/R&B 16ths with ghost notes). Pass `chords` from `composeChords` so the bass follows the actual harmony.
+
+**`m.composeDrums({ genre, bars, energy, fills })`** → an **array of ready-to-render track descriptors** (one per drum voice), each with numeric-MIDI events, a default per-voice EQ, and the genre's swing/accent humanization. Spread it straight into `render`:
+
+```js
+const drums = m.composeDrums({ genre: 'lofi', bars: 8 });   // → [kickTrack, snareTrack, hatTrack, ...]
+console.log('drums meta', JSON.stringify(drums.meta));       // { groove, seed, lanePicks } — log to reproduce
+const out = m.render([compTrack, bassTrack, ...drums], { bpm });
+```
+
+Genre grooves: `boom-bap`/`lofi` (swung hip-hop), `house`/`edm-uplift` (four-on-floor + offbeat open hats), `pop`/`rock`/`synthwave`, `jazz` (swung ride + brushed kick), `trap` (half-time + hat rolls), `funk` (syncopated 16ths + ghost chatter), `bossa`, `cinematic` (taiko). A build-music genre tag (e.g. `'lofi-jazz'`) maps to the closest groove automatically.
+
+Every seedless run picks **groove variants** (alternate kick/hat/snare lanes per piece), a **fill shape per 4-bar boundary** (16th ramp / tom cascade / snare drag / stutter / none), and per-bar **embellishments** (pickup kicks, extra ghosts, phrase-end open hats) — so two lofi pieces get related-but-different drums. Knobs: `energy` 0..1 (scales velocities, thins ghost notes when low), `fills` (default true), `embellish` 0..1 (default 0.5; 0 = pure template), `seed` (pin a take — the piece's groove is in `drums.meta`). Ghost notes and metric velocity accents are baked in — that velocity layering is the single biggest "not a drum machine" lever.
+
+**Symbolic drum names** live in `m.DRUM_MAP` (`bd`/`kick`, `sn`/`snare`, `hh`, `oh` open hat, `tom`/`tomL`/`tomH`, `clap`, `shaker`, `rs` rim) → `{ voice, midi }`. Use it if you hand-build a drum pattern with `parseMini`, mapping each name to its numeric MIDI before rendering — bare string values render silent.
+
 ## Voice catalog
 
 All voices live in `m.synth_voices`. Each takes `(midi, durBeats, velocity, bpm, ctx?)` and returns a Float32Array. Voices preserve their natural decay — buffer length will exceed `durBeats * 60 / bpm`.
@@ -200,13 +242,21 @@ All voices live in `m.synth_voices`. Each takes `(midi, durBeats, velocity, bpm,
 | `bell` | 4-op FM bell, long ring-out | Ear candy, intros |
 | `marimba` | FM mallet, short woody decay | Ostinatos, tonal accents |
 | `vibraphone` | FM with 5 Hz tremolo (motor-disk-style) | Jazz, ambient |
+| `organ` | Additive drawbar organ + rotary wobble + percussion ping | Funk, gospel, R&B comping |
+| `musicBox` | Plucked steel comb tooth, inharmonic sparkle | Cute/dreamy melodies (best above C5) |
+| `kalimba` | Plucked tine + thumb thump | Lofi/cute ostinatos |
+| `steelDrum` | FM pan, octave + shimmer partials | Tropical, island, playful |
 | `pluckString` | Delay-line pluck, bright with velocity | Harp/koto ostinatos |
 | `nylonGuitar` | Delay-line pluck + body thump | Finger-style chords |
+| `mutedGuitar` | Palm-muted Karplus-Strong + drive | Pop/rock/funk chug riffs |
 | `pad` | Detuned-saw + slow filter sweep | Warm pad bed, **cinematic body** |
 | `analogBrass` | Saws + velocity-tracking filter | Fanfare, brass stabs |
 | `synthBass` | Saws + sub + filter envelope | Electronic bass |
 | `subBass` | Pure sine + triangle harmonic | Sub-200 Hz weight |
-| `synthLead` | Three-saw stack, resonant LPF | Cut-through leads (synthwave/edm) |
+| `synthLead` | Analog mono lead: saw + PWM pulse + sub, filter env, delayed vibrato, drive | Cut-through leads (synthwave/edm) |
+| `pluckSynth` | Two-saw pluck, fast filter decay | Trance/pop/EDM arpeggios |
+| `acidBass` | 303-style mono saw, high-resonance filter env, drive | Squelchy electronic bass |
+| `whistle` | Near-pure sine, pitch scoop, delayed vibrato, breath | Playful / lighthearted melody |
 | `flute` | Digital-waveguide tube, breathy | **Cinematic / emotional melody** |
 | `clarinet` | Waveguide tube, woody (odd harmonics) | **Cinematic / mournful melody** |
 | `choirAh` | Detuned saws + 'a' formant + vibrato | Vocal pad — use sparingly, only as a swell accent in B sections (detuned-saw character is obvious if exposed). |
@@ -216,6 +266,7 @@ All voices live in `m.synth_voices`. Each takes `(midi, durBeats, velocity, bpm,
 | `tom` | Pitch-sweeping sine, tunable | Taiko fills, cinematic accents |
 | `clap` | Four staggered noise bursts + tail | House, hip-hop |
 | `shaker` | Filtered noise burst | Top-end groove |
+| `crash` | Long bright cymbal wash, shimmer bands | Section starts, fill landings (`crash`/`cr` in `DRUM_MAP`) |
 
 **Cinematic comp recommendation:** layer `piano` (chord hits with cathedral reverb — gives harmonic definition + iconic Hans-Zimmer feel) + `pad` (sustained body underneath). There is no "strings" voice in this skill — pure-DSP synthesis can't convincingly fake bowed strings (no Helmholtz physics, no body convolution). If you need string-section character, use sampled assets, not synthesis.
 
@@ -234,6 +285,13 @@ Frequency separation is the single biggest mix-quality lever. Apply these via ea
 | Glue | `compressor: { threshold: 0.6 }` | Optional on noisy mixes |
 
 Common reverb assignments: pad/strings/lead → `largeHall`, piano → `mediumRoom`, percussion → none or `smallRoom`, sub-bass → none.
+
+**Lushness & space (newer FX keys):**
+- `chorus` on a track's `fx` makes a single pad/choir/string voice sound like an ensemble (modulated detune across 2-3 voices) and widens it to stereo: `fx: { chorus: { voices: 3, mix: 0.35 }, reverb: 'largeHall', gain: 0.2 }`. Best on `pad`, `choirAh`; subtle on leads.
+- Per-track `pan` (-1..+1) and `width` (M/S, >1 wider) place instruments in the stereo field. Convention: kick/snare/bass/lead centered, hats slightly off, pads/choir wide.
+- A **real compressor** is available on the `compressor` fx key when you pass dB threshold + ratio + attack/release (e.g. `compressor: { threshold: -18, ratio: 3, attack: 0.01, release: 0.12 }`). A linear-threshold-only `compressor: { threshold: 0.6 }` still maps to the legacy soft-limiter (a ceiling).
+- **Master glue**: `render(tracks, { master: { normalize: 'peak', glue: true, width: 1.15 } })` applies gentle bus compression (so independently-rendered tracks cohere) and a stereo-width tweak. The single most audible "produced vs programmatic" upgrade for a full mix.
+- **Sidechain ducking** (EDM/house pump, or just keeping kick and bass out of each other's way): render the kick and the bass/pad to separate buffers, then `m.mix_bus.sidechainDuck(bassBuffer, kickBuffer, { depth: 6 })` before mixing.
 
 ## Arrangement (`mask`)
 
@@ -288,41 +346,32 @@ m.render(tracks, { bpm, master: { normalize: 'rms', targetRMS: 0.18 } });
 ```js
 const m = require('/abs/path/to/build-music/tools');
 
-// composeChords: genre-aware harmony, seed pins this run.
-const { chords, meta } = m.composeChords({ genre: 'lofi-jazz', seed: 42, voice: 'electricPiano' });
-// meta = { key, progression, voicing, scale, ... } — useful for logging
+// No seeds anywhere: every run of this script is a DIFFERENT lofi-jazz piece.
+// meta/drums.meta are logged so a liked take can be pinned later.
+const { chords, meta } = m.composeChords({ genre: 'lofi-jazz', voice: 'electricPiano' });
+const bpm = m.suggestTempo('lofi-jazz');
+console.log('harmony', JSON.stringify(meta), 'bpm', bpm);
 
 const compEvents = m.chordEvents(chords, { voice: 'electricPiano', bars: 8, velocity: 70 });
 
-// Walking bass: roots and fifths
-const bassEvents = [];
-chords.forEach((ch, i) => {
-    bassEvents.push({ time: i * 4 + 0, beats: 1, value: ch.root - 24, velocity: 90 });
-    bassEvents.push({ time: i * 4 + 1, beats: 1, value: ch.root - 24 + 4, velocity: 80 });
-    bassEvents.push({ time: i * 4 + 2, beats: 1, value: ch.root - 24 + 7, velocity: 85 });
-    bassEvents.push({ time: i * 4 + 3, beats: 1, value: ch.root - 24 + 4, velocity: 75 });
-});
-
-// Soft hat groove
-const hat = m.parseMini('h*8', { cycleBeats: 4 });
-m.noteEvents(hat); for (const e of hat) e.value = 42;  // closed hat midi
-const hats = m.repeat(hat, 4);
+// Bass & drums from the chord track — chord-tone-correct, genre-correct, full length.
+// (Don't hand-roll these: hard-coded bass intervals clash with min7/maj7 chords, and
+//  string-named drum patterns render silent.)
+const bass  = m.composeBass({ chords, genre: 'lofi-jazz', bars: 8 });
+const drums = m.composeDrums({ genre: 'lofi-jazz', bars: 8 });
+console.log('drums', JSON.stringify(drums.meta));
 
 const tracks = [
-    m.track('ep',  'electricPiano', compEvents, {
+    m.track('ep',   'electricPiano', compEvents, {
         fx: { hpf: 200, lpf: 3500, reverb: 'mediumRoom', gain: 0.45 },
-        humanize: { groove: 'swing' },
+        humanize: { groove: 'swing', swingAmount: 0.18 },
     }),
-    m.track('bass',    'subBass',  bassEvents, {
-        fx: { lpf: 200, gain: 0.7 },
-    }),
-    m.track('hats',    'hat',      hats, {
-        fx: { hpf: 4000, gain: 0.18 },
-        humanize: { groove: 'swing', velJitter: 0.25 },
-    }),
+    m.track('bass', 'subBass', bass, { fx: { lpf: 240, gain: 0.7 } }),
+    ...drums,   // composeDrums returns ready-to-render track descriptors
 ];
 
-const out = m.render(tracks, { bpm: 80, master: { normalize: 'peak' } });
+// `glue` gently compresses the bus so the separate tracks cohere; `width` opens the stereo.
+const out = m.render(tracks, { bpm, duration: 16, master: { normalize: 'peak', glue: true, width: 1.15 } });
 m.WavBuilder.write(out, '/abs/path/to/Assets/GeneratedSFX/lofi_jazz.wav');
 ```
 
@@ -360,7 +409,9 @@ A real cinematic piece needs all three: chord progression, melody, and section-a
 ```js
 // 1. Chord progression. Cinematic-epic = minor key (i-VI-III-VII variants).
 // Pass voice='pad' so the picker avoids voicings that beat against detuned-saw voices.
-const { chords, meta } = m.composeChords({ genre: 'cinematic-epic', seed: 7, voice: 'pad' });
+// Seedless — a fresh key/progression/voicing every run. Log meta to allow pinning.
+const { chords, meta } = m.composeChords({ genre: 'cinematic-epic', voice: 'pad' });
+console.log('harmony', JSON.stringify(meta));
 
 const a = m.arrangement.arrangement16();  // intro / A / B / outro section masks
 const BARS = 16;  // arrangement16 expects 16 cycles; cycleBeats = 4
@@ -385,9 +436,9 @@ const keyMatch = meta.key.match(/^([A-Ga-g][#b]?)(-?\d+)$/);
 const scaleRoot = keyMatch[1] + (parseInt(keyMatch[2]) + 1); // melody one octave above key
 const melodyEv = m.composeMelody({
     chords, bars: BARS, notesPerBar: 4,
-    octaveShift: 1, contour: 'arch',
+    octaveShift: 1, contour: 'arch',        // vary: 'rising' / 'descend-ascend' also work here
     scale: meta.scale, scaleRoot,
-    seed: 8, restProbability: 0.20,
+    restProbability: 0.20,
 });
 const melodyMasked = m.mask(melodyEv, a.b, BARS, 4);                  // melody only in B (climax)
 
@@ -405,7 +456,7 @@ const tracks = [
     m.track('tom',    'tom',     tomMasked,    { fx: { lpf: 1800, gain: 0.45, reverb: 'largeHall' } }),
 ];
 
-const out = m.render(tracks, { bpm: 75 });
+const out = m.render(tracks, { bpm: m.suggestTempo('cinematic-epic') });
 m.WavBuilder.write(out, '/abs/path/to/Assets/GeneratedSFX/cinematic_piece.wav');
 ```
 
@@ -435,9 +486,13 @@ m.WavBuilder.write(out, '/abs/path/to/Assets/GeneratedSFX/ambient_pad.wav');
 
 Before writing the WAV, confirm you did the relevant items:
 
-- [ ] **Harmony uses `composeChords({ genre, seed })`** for any tonal piece — not `buildProgression()` directly. The genre-aware composer varies key, progression, voicing, and extensions across runs so two pieces with the same vibe don't share identical chords.
+- [ ] **No pinned seeds, no copied BPM.** Compose helpers called seedless; tempo from `m.suggestTempo(genre)`; `meta` (and `drums.meta`) logged so a liked take can be pinned later. This is the variety mandate — see the top of this skill.
+- [ ] **Harmony uses `composeChords({ genre })`** for any tonal piece — not `buildProgression()` directly. The genre-aware composer varies key, progression, voicing, and extensions across runs so two pieces with the same vibe don't share identical chords.
 - [ ] **Melody uses `composeMelody({ chords, ... })`** for any piece that needs a foreground tune — not a fixed `parseMini` motif looped over a moving progression. Mask it through `arrangement8()` sections so it enters and exits rather than playing every bar.
 - [ ] **Comp events via `m.chordEvents(chords, { voice, bars })`**, not hand-rolled `beats: 4` event arrays. Pass the same `voice` to `composeChords` so it can filter voicings that beat against the comp voice.
+- [ ] **Bass via `m.composeBass({ chords, genre })`** — never hand-roll bass intervals (a fixed `+4` major third clashes with every minor/min7 chord). It folds notes into the bass register automatically.
+- [ ] **Drums via `m.composeDrums({ genre, bars })`** — spread the returned track descriptors into `render`. Never use bare string drum names (`'bd ~ sn ~'`) as event values: they render **silent**. If hand-building, map names through `m.DRUM_MAP` to numeric MIDI.
+- [ ] **Full mix gets `master: { glue: true }`** (and a `width` tweak) so the tracks cohere; add `chorus` to pad/choir tracks for ensemble lushness.
 - [ ] **Cinematic comp uses `piano` + `pad` layered.** There is no `analogStrings` voice in this skill (removed — pure-DSP synthesis can't convincingly fake bowed strings). Piano with cathedral reverb + pad underneath delivers actual cinematic gravitas.
 - [ ] **Composition uses scale degrees** (`0 2 4 6` + `scale()`), not absolute pitch names where it doesn't matter.
 - [ ] **Humanization is enabled** (default) on at least every melodic and pad track. Only use `quantize: 'strict'` for 8-bit or hand-coded tight grids.
@@ -459,3 +514,10 @@ Before writing the WAV, confirm you did the relevant items:
 - **"Cinematic/dark mix sounds hollow"** — Comp voice (strings) is high, bass is sub-low, nothing in between. Add a soft `pad` layer at ~50% velocity to fill the 200–500 Hz mid.
 - **"The piece sounds like a static loop / no progression or song shape"** — Likely no melody and no arrangement masking. Add `composeMelody` for a foreground tune and route different layers through `arrangement8()` sections so they enter and exit.
 - **"Top voice of the chord layer reads as melody, but I want one anyway"** — This was previously documented as a problem; it's actually a feature of harmonic music. If you don't want it, see the textural / atmospheric branch (`granular.*` from build-sfx) — but most music *should* have a moving top voice. Don't reach for `voicingMode: 'topAnchored'` unless the piece is meant to be a held bed with no progression.
+
+## License provenance (read before editing `tools/`)
+
+This engine is fully algorithmic — **no samples, no datasets, no model weights** — and syncs to a public Apache-2.0 repo, so generated audio is license-clean by construction. Keep it that way when extending the DSP:
+
+- **Allowed sources:** published papers/algorithms (FM synthesis and Karplus-Strong patents both expired; PolyBLEP, velvet-noise reverb, the JAES compressor, RBJ biquads are all open academic work), public-domain code (Freeverb, the Kellett pink-noise filter, `mulberry32` CC0), and MIT/BSD code **with its license notice preserved** (sfxr, STK, Mutable STM32). Musical facts — chord progressions, scales, groove patterns, swing percentages, formant frequencies — are uncopyrightable; encode them yourself.
+- **Forbidden:** porting, pasting, or closely paraphrasing code from copyleft projects — SuperCollider, TidalCycles, Csound (GPL/LGPL) or **Strudel (AGPL-3.0, the highest risk since it's JavaScript like this engine)**. Studying their docs/syntax and re-deriving independently is fine; copying their code is a contamination incident. The mini-notation parser (`pattern.js`) carries this warning in its header for exactly this reason.

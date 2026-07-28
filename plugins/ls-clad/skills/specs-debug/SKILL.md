@@ -103,7 +103,7 @@ If the user reports unstable anchors but the environment is fine, the bug *is* i
 
 ## Performance tooling
 
-- **Lens Performance Overlay** (on Specs; all three tools share the same Lens Power scale: 0–100, smooth ≤100, throttling above) — Spectacles App → Developer Settings → enable overlay. Shows CPU, GPU, FPS, battery, Lens Power live. Consumes some power itself, so its readings are slightly conservative.
+- **Lens Performance Overlay** (on Specs; all three tools share the same Lens Power scale: 0–100, smooth ≤100, throttling above) — Specs App → Developer Settings → enable overlay. Shows CPU, GPU, FPS, battery, Lens Power live. Consumes some power itself, so its readings are slightly conservative.
 - **Spectacles Monitor** (in Lens Studio) — `Window → Utilities → Spectacles Monitor`. Same metrics with more precision; **turn the overlay off** when reading from Monitor to avoid double-counting.
 - **Perfetto trace** for CPU hot paths — capture from Spectacles Monitor, then analyze with `ls-clad:perfetto-trace-analysis`.
 

@@ -17,7 +17,7 @@ and notify users when no motion controller is connected.
 
 **Always filter out matches inside `.lspkg/` directories** — those are package-internal
 uses (most commonly SIK's `Assets/SpectaclesInteractionKit.lspkg/Providers/MobileInputData/`)
-and do not represent a lens-level dependency on a motion controller. The package owns its
+and do not represent a Lens-level dependency on a motion controller. The package owns its
 own migration through the package update in Step 2.
 
 ```bash
@@ -45,7 +45,7 @@ let controller = motionControllerModule.getController(options);
 controller.onControllerStateChange.add(function() {
     if (!controller.isControllerAvailable()) {
         // Show user notification: "Please connect a controller"
-        // The specific UX depends on the lens - use a Screen Text or UI overlay
+        // The specific UX depends on the Lens - use a Screen Text or UI overlay
     }
 });
 ```

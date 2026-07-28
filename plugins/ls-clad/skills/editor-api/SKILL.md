@@ -34,12 +34,27 @@ async function(pluginSystem) {
 }
 ```
 
-**Input**: `{ code: string }`
+**Input**: `{ path: string }` when the script is on disk, else `{ code: string }` — see below
 **Success**: `{ status: "Execution Succeeded", returnValue: <value>, console: [...] }`
 **Compile error**: `{ status: "Compilation Failed", errors: [...], console: [...] }`
 **Runtime error**: `{ status: "Execution Failed", error: <message>, stack: <trace>, console: [...] }`
 
 Use `return` to produce output. `console.log()` calls are captured in the `console` array.
+
+### Input — pass a path when the script is already on disk
+
+Two ways to supply the source. They are mutually exclusive; `path` wins if you send both.
+
+| Param | Use when | Notes |
+| --- | --- | --- |
+| `path: string` | the script already exists as a file | The tool reads the file itself. Absolute path, readable by the Lens Studio process. |
+| `code: string` | you are composing the snippet right now | Send the source inline. |
+
+**Never `Read` a `.ts` file just to paste its contents back as `code`.** That pays for the source twice — once as the read result, once as the tool argument — and for a large pinned script that is thousands of tokens per call. Pass `path` and the body never enters your context at all.
+
+The file must hold the same thing `code` does: an async function body with **no top-level `import`/`export` statements** (use `await import("LensStudio:…")`). A real module file will not run. Both inputs share the same 50,000-character ceiling.
+
+Bad paths fail loudly rather than silently falling back to `code` — `File not found: <path>` or `Not a file: <path>`. If instead you get `Missing required parameter: 'code' (string)`, the Lens Studio build predates `path`: read the file and pass `code` for that session.
 
 ## Editor API Entry Points
 

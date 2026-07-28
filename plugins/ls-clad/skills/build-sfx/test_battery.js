@@ -112,8 +112,37 @@ function renderDrone() {
     audio.fadeIn(sum, 0.4); audio.fadeOut(sum, 0.5);
     return audio.mix_bus.applyFx(sum, { hpf: 60, lpf: 2500, reverb: 'largeHall', gain: 0.5 });
 }
-function renderWind() { return audio.granular.windTexture(4, 0.7); }
-function renderRain() { return audio.granular.rainTexture(4, 0.6); }
+function renderWind() { return audio.granular.windTexture(4, 0.7, { seed: 21 }); }
+function renderRain() { return audio.granular.rainTexture(4, 0.6, { seed: 31 }); }
+
+// Curated preset library (sfx_presets.js) — fixed seeds for deterministic gates.
+const p = audio.sfx_presets;
+function renderPresetUiClick()   { return p.uiClick({ seed: 11 }); }
+function renderPresetUiSuccess() { return p.uiSuccess({ seed: 12 }); }
+function renderPresetWhoosh()    { return p.whoosh({ seed: 13 }); }
+function renderPresetImpactMetal(){ return p.impact({ material: 'metal', seed: 14 }); }
+function renderPresetImpactGlass(){ return p.impact({ material: 'glass', seed: 15 }); }
+function renderPresetFootstep()  { return p.footstep({ surface: 'gravel', seed: 16 }); }
+function renderPresetExplosion() { return p.explosion({ seed: 17 }); }
+function renderPresetCoin()      { return p.coin({ seed: 18 }); }
+function renderPresetSparkle()   { return p.sparkle({ seed: 19 }); }
+function renderPresetMagicChime(){ return p.magicChime({ seed: 20 }); }
+
+// New instrument voices (2026-07): rendered solo through the music renderer.
+function renderOrgan() {
+    const ev = [{ time: 0, beats: 4, value: 60, velocity: 100 }];
+    return music.render([music.track('o', 'organ', ev, { fx: { gain: 0.7 } })], { bpm: 120, duration: 5 });
+}
+function renderKalimba() {
+    const ev = music.parseMini('0 2 4 7 4 2 0 ~', { cycleBeats: 8 });
+    music.scale(ev, 'pentatonicMajor', 'C5');
+    return music.render([music.track('k', 'kalimba', ev, { fx: { reverb: 'smallRoom', gain: 0.6 } })], { bpm: 110 });
+}
+function renderAcidBass() {
+    const ev = music.parseMini('0 0 3 0 5 0 3 7', { cycleBeats: 4 });
+    music.scale(ev, 'minor', 'A1');
+    return music.render([music.track('a', 'acidBass', ev, { fx: { gain: 0.7 } })], { bpm: 126 });
+}
 
 function renderPianoScale() {
     const events = music.parseMini('0 1 2 3 4 5 6 7', { cycleBeats: 8 });
@@ -168,14 +197,19 @@ function renderAmbientPad() {
     return music.render(tracks, { bpm: 60, duration: 30 });
 }
 
-// Smoke set: cheap, fast, exercises each major code path once
+// Smoke set: cheap, fast, exercises each major code path once. `pitch` is an
+// expected fundamental (Hz) for tonal fixtures — checked via autocorrelation so
+// a MIDI→Hz / oscillator-tuning regression can't pass silently.
 const SMOKE_FIXTURES = [
     { name: 'click',        render: renderClick,        category: 'ui',     stereo: false },
     { name: 'punch',        render: renderPunch,        category: 'impact', stereo: false },
     { name: 'laser',        render: renderLaser,        category: 'sweep',  stereo: false },
     { name: 'wind',         render: renderWind,         category: 'ambient',stereo: true  },
-    { name: 'piano_scale',  render: renderPianoScale,   category: 'music',  stereo: true  },
+    { name: 'rain',         render: renderRain,         category: 'ambient',stereo: true  },
+    { name: 'piano_scale',  render: renderPianoScale,   category: 'music',  stereo: true, pitch: 261.6 },
     { name: 'vibes_comp',   render: renderVibesComp,    category: 'music',  stereo: true  },
+    { name: 'p_ui_click',   render: renderPresetUiClick,   category: 'preset', stereo: false },
+    { name: 'p_impact_mtl', render: renderPresetImpactMetal, category: 'preset', stereo: true },
 ];
 
 const FULL_FIXTURES = [
@@ -193,52 +227,92 @@ const FULL_FIXTURES = [
     { name: 'brass_fanfare', render: renderBrassFanfare, category: 'music',  stereo: true  },
     { name: 'lofi_jazz',     render: renderLofiJazz,     category: 'music',  stereo: true  },
     { name: 'ambient_pad',   render: renderAmbientPad,   category: 'music',  stereo: true  },
+    { name: 'p_ui_success',  render: renderPresetUiSuccess,   category: 'preset', stereo: true },
+    { name: 'p_whoosh',      render: renderPresetWhoosh,      category: 'preset', stereo: true },
+    { name: 'p_impact_gls',  render: renderPresetImpactGlass, category: 'preset', stereo: true },
+    { name: 'p_footstep',    render: renderPresetFootstep,    category: 'preset', stereo: true },
+    { name: 'p_explosion',   render: renderPresetExplosion,   category: 'preset', stereo: true },
+    { name: 'p_coin',        render: renderPresetCoin,        category: 'preset', stereo: false },
+    { name: 'p_sparkle',     render: renderPresetSparkle,     category: 'preset', stereo: true },
+    { name: 'p_magic_chime', render: renderPresetMagicChime,  category: 'preset', stereo: true },
+    { name: 'organ',         render: renderOrgan,             category: 'voice',  stereo: true, pitch: 261.6 },
+    { name: 'kalimba',       render: renderKalimba,           category: 'voice',  stereo: true, pitch: 523.25 },
+    { name: 'acid_bass',     render: renderAcidBass,          category: 'voice',  stereo: true },
 ];
 
 const FIXTURES = SMOKE ? SMOKE_FIXTURES : FULL_FIXTURES;
 
 // ─── Numeric checks ────────────────────────────────────────
 
-function computeChecks(buf, name) {
+// Autocorrelation pitch estimate over a window — used to verify tonal fixtures
+// are actually in tune (catches MIDI→Hz / oscillator-tuning regressions).
+function estimatePitch(arr, expectedHz) {
+    const t0 = Math.floor(0.05 * SR), t1 = Math.min(arr.length, t0 + 16000);
+    const seg = arr.subarray(t0, t1);
+    const minLag = Math.floor(SR / (expectedHz * 1.25));
+    const maxLag = Math.ceil(SR / (expectedHz * 0.8));
+    let bestLag = minLag, best = -Infinity;
+    const N = Math.min(6000, seg.length - maxLag - 2);
+    if (N < 1000) return null;
+    for (let lag = minLag; lag <= maxLag; lag++) {
+        let c = 0;
+        for (let i = 0; i < N; i++) c += seg[i] * seg[i + lag];
+        if (c > best) { best = c; bestLag = lag; }
+    }
+    return SR / bestLag;
+}
+
+function computeChecks(buf, name, fx) {
     const arr = buf.left ? buf.left : buf;
     const len = arr.length;
-    if (len === 0) return { pass: false, reason: 'empty buffer' };
+    if (len === 0) return { pass: false, failures: ['empty buffer'], checks: {} };
 
-    // Peak, DC offset
-    let sum = 0, peak = 0;
-    for (let i = 0; i < len; i++) {
-        sum += arr[i];
-        const a = Math.abs(arr[i]);
-        if (a > peak) peak = a;
+    // Scan both channels for stereo (a silent/clipped/DC right channel must fail too).
+    const chans = buf.left ? [buf.left, buf.right] : [arr];
+    let sum = 0, peak = 0, sumSq = 0, nan = 0;
+    for (const ch of chans) {
+        for (let i = 0; i < ch.length; i++) {
+            const v = ch[i];
+            if (!isFinite(v)) { nan++; continue; }
+            sum += v;
+            const a = Math.abs(v);
+            if (a > peak) peak = a;
+            sumSq += v * v;
+        }
     }
-    const dc = Math.abs(sum / len);
+    const total = len * chans.length;
+    const dc = Math.abs(sum / total);
+    const rms = Math.sqrt(sumSq / total);
 
-    // Click detection: large sample-to-sample jumps in the last 5 ms (excluding fadeIn)
+    // Click detection: large sample-to-sample jumps in the last 5 ms.
     const tailStart = Math.max(0, len - Math.floor(0.005 * SR));
     let maxJumpTail = 0;
-    for (let i = tailStart + 1; i < len; i++) {
-        const j = Math.abs(arr[i] - arr[i - 1]);
-        if (j > maxJumpTail) maxJumpTail = j;
+    for (const ch of chans) {
+        for (let i = tailStart + 1; i < ch.length; i++) {
+            const j = Math.abs(ch[i] - ch[i - 1]);
+            if (j > maxJumpTail) maxJumpTail = j;
+        }
     }
 
-    // RMS as a sanity check (rendered buffer shouldn't be silent)
-    let sumSq = 0;
-    for (let i = 0; i < len; i++) sumSq += arr[i] * arr[i];
-    const rms = Math.sqrt(sumSq / len);
-
-    const checks = {
-        peak,
-        dc,
-        maxJumpTail,
-        rms,
-        durationSec: +(len / SR).toFixed(3),
-    };
+    const checks = { peak, dc, maxJumpTail, rms, durationSec: +(len / SR).toFixed(3) };
     const failures = [];
+    if (nan > 0) failures.push(`${nan} non-finite samples (NaN/Inf)`);
     if (dc > 0.005) failures.push(`DC offset ${dc.toFixed(4)} > 0.005`);
     if (peak > 0.99) failures.push(`peak ${peak.toFixed(3)} > 0.99 (clipping risk)`);
     if (peak < 0.01) failures.push(`peak ${peak.toFixed(3)} < 0.01 (effectively silent)`);
     if (maxJumpTail > 0.06) failures.push(`tail click ${maxJumpTail.toFixed(3)} > 0.06 (end-of-buffer click)`);
     if (rms < 0.005) failures.push(`RMS ${rms.toFixed(4)} < 0.005 (very quiet)`);
+
+    // Pitch/tuning check for tonal fixtures that declare an expected fundamental.
+    if (fx && fx.pitch) {
+        const measured = estimatePitch(arr, fx.pitch);
+        if (measured) {
+            const cents = 1200 * Math.log2(measured / fx.pitch);
+            checks.pitchHz = +measured.toFixed(1);
+            checks.pitchCents = +cents.toFixed(0);
+            if (Math.abs(cents) > 35) failures.push(`pitch ${measured.toFixed(1)}Hz vs ${fx.pitch}Hz (${cents.toFixed(0)} cents off — tuning regression)`);
+        }
+    }
     return { pass: failures.length === 0, failures, checks };
 }
 
@@ -260,7 +334,7 @@ for (const fx of FIXTURES) {
     const writePath = path.join(OUT, `${fx.name}.wav`);
     audio.WavBuilder.write(buf, writePath);
     const t1 = Date.now();
-    const result = computeChecks(buf, fx.name);
+    const result = computeChecks(buf, fx.name, fx);
     result.name = fx.name;
     result.category = fx.category;
     result.renderMs = t1 - t0;
@@ -269,6 +343,42 @@ for (const fx of FIXTURES) {
         failed++;
         console.error(`  [FAIL] ${fx.name}: ${result.failures.join('; ')}`);
     }
+}
+
+// ─── Variety gates ─────────────────────────────────────────
+// Seedless calls must NOT be deterministic — the "every experience sounds the
+// same" bug was fixed by randomizing default seeds; these gates keep it fixed.
+
+function buffersDiffer(a, b) {
+    const xa = a.left || a, ya = b.left || b;
+    if (xa.length !== ya.length) return true;
+    for (let i = 0; i < xa.length; i += 97) if (xa[i] !== ya[i]) return true;
+    return false;
+}
+function eventsDiffer(a, b) { return JSON.stringify(a) !== JSON.stringify(b); }
+
+const varietyChecks = [];
+{
+    const d1 = music.composeDrums({ genre: 'lofi', bars: 8 });
+    const d2 = music.composeDrums({ genre: 'lofi', bars: 8 });
+    varietyChecks.push(['composeDrums (no seed) varies',
+        eventsDiffer(d1.map(t => t.events), d2.map(t => t.events))]);
+    const { chords } = music.composeChords({ genre: 'pop', seed: 1 });
+    varietyChecks.push(['composeBass (no seed) varies',
+        eventsDiffer(music.composeBass({ chords, genre: 'pop', bars: 8 }),
+                     music.composeBass({ chords, genre: 'pop', bars: 8 }))]);
+    varietyChecks.push(['sfx preset (no seed) varies',
+        buffersDiffer(p.uiClick({}), p.uiClick({}))]);
+    varietyChecks.push(['granular texture (no seed) varies',
+        buffersDiffer(audio.granular.windTexture(1, 0.5), audio.granular.windTexture(1, 0.5))]);
+    varietyChecks.push(['seeded drums reproduce',
+        !eventsDiffer(music.composeDrums({ genre: 'pop', bars: 4, seed: 9 }).map(t => t.events),
+                      music.composeDrums({ genre: 'pop', bars: 4, seed: 9 }).map(t => t.events))]);
+}
+console.log('\n──── Variety Gates ────');
+for (const [name, ok] of varietyChecks) {
+    console.log(`${ok ? '  [ok] ' : '  [FAIL] '}${name}`);
+    if (!ok) failed++;
 }
 
 // ─── Summary ──────────────────────────────────────────────
@@ -289,8 +399,11 @@ for (const r of results) {
 
 console.log(`\nWAV files written to: ${OUT}`);
 
-if (SMOKE && failed > 0) {
-    console.error(`\nSmoke FAILED — ${failed} fixture(s) hit a numeric gate.`);
+// Gate the exit code in BOTH modes — a failing fixture should break CI whether
+// the run was --smoke or full (previously full mode always exited 0, so the
+// long-broken rain fixture was invisible to automation).
+if (failed > 0) {
+    console.error(`\nBattery FAILED — ${failed} fixture(s) hit a numeric gate.`);
     process.exit(1);
 }
 process.exit(0);

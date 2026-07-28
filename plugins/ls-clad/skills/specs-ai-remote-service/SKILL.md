@@ -367,7 +367,7 @@ public sendMessage(userText: string): Promise<string> {
 
 ## ASR Module Reference
 
-**Prerequisites:** Lens Studio v5.9.0+, Spectacles OS v5.61+. ASR only runs on physical Specs — Preview always returns "Nothing heard".
+**Prerequisites:** Lens Studio v5.9.0+, Snap OS v5.61+. ASR only runs on physical Specs — Preview always returns "Nothing heard".
 
 ### Recommended ASR UX (propose this at the start of any ASR task)
 
@@ -696,13 +696,13 @@ When putting an `Image` component inside a SUIK `Frame`/`BackPlate`, the image o
 
 ## WebSocket API Reference
 
-**Prerequisites:** Lens Studio v5.4.0+, Spectacles OS v5.059+. WebSocket only works on Specs (not iOS/Android).
+**Prerequisites:** Lens Studio v5.4.0+, Snap OS v5.059+. WebSocket only works on Specs (not iOS/Android).
 
 **LS 5.9+ migration:** `createWebSocket` moved from `RemoteServiceModule` to `InternetModule`. For any new Lens use `InternetModule`. Old published Lenses using `RemoteServiceModule` continue to work until re-published.
 
 **`wss://` vs `ws://`:** Use `wss://` (secure) for any publishable Lens. `ws://` requires Experimental APIs enabled and **cannot be published**.
 
-**Preview window:** WebSocket only works in Preview if **Device Type Override** is set to Spectacles.
+**Preview window:** WebSocket only works in Preview if **Device Type Override** is set to SPECS 27.
 
 ```typescript
 @component

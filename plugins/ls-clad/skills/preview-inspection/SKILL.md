@@ -117,7 +117,7 @@ GraphQL errors carry a stable `extensions.code` for branching:
 | `INVALID_FILTER` | `sceneObjects` called without any predicate | use `sceneRoots` for unfiltered top-level walks |
 | `INVALID_PARAMS` | bad `limit`, or `sortBy: DISTANCE` without `nearPoint` | follow the message |
 | `TIMEOUT` / `NO_PREVIEW` | bridge problem | retry, ensure preview is open and AgentInspectScript is wired |
-| `INTERNAL_ERROR` | unexpected lens-side exception | report; not retryable |
+| `INTERNAL_ERROR` | unexpected Lens-side exception | report; not retryable |
 
 ## Capture
 

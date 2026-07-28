@@ -357,7 +357,7 @@ export class ScoreManager extends BaseScriptComponent {
 | Math, coordinates, camera projection, rotations | `references/math.md` |
 | Face tracking, expressions, landmarks | `references/face-tracking.md` |
 | VFX, particle systems | `references/vfx.md` |
-| Physics raycasting, surface alignment (Spectacles) | `references/world-query.md` |
+| Physics raycasting, surface alignment (Specs) | `references/world-query.md` |
 | Bitmoji, Dynamic Response | `references/user-context.md` |
 | Performance optimization, profiling | `references/performance.md` |
 | Debugging — compile/runtime errors, `@input` not assigned, missing component, event timing | `references/debugging.md` |

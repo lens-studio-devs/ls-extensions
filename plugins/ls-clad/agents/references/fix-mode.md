@@ -33,7 +33,7 @@ For each issue, route by `category`:
 |---|---|
 | `missing_component` | Edit the relevant `Assets/Scripts/<X>.ts` to add the missing component creation in `onAwake()` (or wherever the parent SceneObject is built). If the missing component is a wiring-only fix (e.g. `Interactable` needs to be added to an existing SceneObject), edit the script. `RecompileTypeScriptTool` after. |
 | `wrong_position` | Edit the `worldPosition` constants / `transform.setLocalPosition(…)` calls in the relevant script. Re-check with Phase 2g's spatial-layout math (pairwise overlap + viewport bounds) before committing the edit. `RecompileTypeScriptTool` after. |
-| `ui_wiring` | If the `uiHud` (or similar `@input`) reference isn't connected, run ONE targeted `VirtualScene apply` with a `setProperty(propertyPath: "uiHud", valueType: REFERENCE, value: <ui-script-id>)` op. If the issue is a missing setter/event on the UI module, re-invoke `/specs-build-ui` for that single method (Phase 2d's re-invocation rule applies). |
+| `ui_wiring` | If an authored `@input` reference isn't connected — a UI/controller/component ref, an authored-object ref, an anchor array, or a tunable scalar — run ONE targeted `VirtualScene apply` batching the missing `setProperty` op(s) (`valueType: REFERENCE` for refs, `STRING`/`NUMBER`/`BOOLEAN` for scalars, `VEC3`/`VEC4` for colors and vectors — a color `@input` is a `vec3`/`vec4`, e.g. `value: "0.8, 0.1, 0.1, 1.0", valueType: VEC4`; the component-UUID path for component-typed refs — see `scene-graphql.md`). If the issue is a missing setter/event on a UI module, re-invoke `/specs-build-ui` for that single method (Phase 2d's re-invocation rule applies). |
 | `missing UI surface` (categorized as `ui_wiring` with detail mentioning a missing element) | Re-invoke `/specs-build-ui` with the missing surface described in the prose args. After it produces the updated `*UI.ts`, re-bootstrap that ScriptComponent if needed (one VirtualScene apply max). |
 | `missing mesh / wrong dimensions` (categorized as `missing_component` with detail mentioning a mesh) | Re-invoke `/build-mesh` for that single entry with corrected `target_size_cm`. Update collider sizes in the script per Hard Rule 6.8. Never compensate with `setLocalScale`. |
 | `orphan_asset` | Either reference the asset from the relevant script (preferred — the asset was generated, so use it) or delete the asset file. Warning severity, never blocks. |
@@ -78,8 +78,8 @@ asset_manifest:
   meshes:     [<Name>.glb, …]
   sfx:        [<Name>.wav, …]
   icons:      [<name>.png, …]
-  ui_modules: [<Name>UI.ts, …]
-  scripts:    [<Name>.ts, …]
+  ui_modules: [<ExperienceName><PanelName>UI.ts, …]
+  scripts:    [<ExperienceName>Main.ts, <ExperienceName><Module>.ts, …]
 backend_deviations: [{mesh: <Name>.glb, backend: fast3d, reason: <backend_reason>}, …]  # meshes re-generated off-SPECS this pass; [] when none
 spatial_layout: |
   <spatial layout, updated if positions changed>

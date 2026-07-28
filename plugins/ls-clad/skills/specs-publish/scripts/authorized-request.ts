@@ -1,27 +1,45 @@
 // Copyright 2026 Specs Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// publish · AUTHORIZED REQUEST (Editor API) — used for BOTH register and submit.
-// Sends an authenticated POST to the Specs submission API through Lens Studio's authorized
+// publish · AUTHORIZED REQUEST (Editor API) — used for category lookup, register, metadata updates, and submit.
+// Sends an authenticated request to the Specs submission API through Lens Studio's authorized
 // HTTP, retries across API bases, and classifies the result so the skill knows whether to
 // proceed, prompt the user, or fail.
 //
-// HOW TO RUN: read this file, set the four CONFIG values for THIS call in the copy you pass
-// to ExecuteEditorCode, then send the rest unchanged. Do NOT edit the file on disk.
+// HOW TO RUN: do NOT read this file, and do NOT hand-write the CONFIG consts.
+// Run `make-eec-script.py` against it — it JSON-encodes each value (a bare
+// quote or a Windows backslash otherwise corrupts the emitted TypeScript), keeps the
+// declarations' type annotations, and prints a unique temp path. Pass that path to
+// ExecuteEditorCode as `path`, then delete it. Never edit this file on disk.
 //
+//   Categories:           REQUEST_PATH = "/categories"
+//                         REQUEST_METHOD = "GET"
+//                         BODY = {}
 //   Publish (register):   REQUEST_PATH = "/lenses/publish"
+//                         REQUEST_METHOD = "POST"
 //                         BODY = { pkgId, name, spkChecksum, /* +orgId/categoryId/semanticVersion if set */ }
+//   Preview upload:       REQUEST_PATH = "/apps/upload"
+//                         REQUEST_METHOD = "POST"
+//                         BODY = { appId, versionId, contentType: "prv", checksum, checksumAlgo, previewIndex, fileType }
+//   Preview metadata:     REQUEST_PATH = `/apps/${lensId}/versions/${releaseId}`
+//                         REQUEST_METHOD = "PUT"
+//                         BODY = { metadata: { ...existingMetadata, default: { ...existingMetadata.default, previewAssets } } }
+//   Age rating metadata:  REQUEST_PATH = `/apps/${lensId}/versions/${releaseId}`
+//                         REQUEST_METHOD = "PUT"
+//                         BODY = { reviewMetadata: { targetAgeRating } }
 //   Submit:               REQUEST_PATH = `/lenses/${lensId}/submit`
+//                         REQUEST_METHOD = "POST"
 //                         BODY = { releaseId, wait: true, maxWaitMs: 180000, pollIntervalMs: 1000 }
 //   TENANT_ID: set to the chosen orgId once known, else "".
 //
 // Result shapes:
-//   { status: "AUTHORIZED_POST_OK", httpStatus, data, ... }   ← inspect data.status
+//   { status: "AUTHORIZED_POST_OK", httpStatus, data, ... }   ← legacy success name for GET/POST/PUT; inspect data
 //   { status: "ACTION_REQUIRED", reason, message, ... }       ← ask the user, then retry
 //   { status: "FAILED", reason, message, httpStatus?, apiBaseUrl?, bodyPrefix?, ... }
 
 // ===================== CONFIG — replace per call =====================
 const REQUEST_PATH = "/lenses/publish";
+const REQUEST_METHOD = "POST";
 const BODY: Record<string, unknown> = {};
 const TENANT_ID = "";
 const EXTRA_HEADERS: Record<string, string> = {};
@@ -56,6 +74,18 @@ function actionRequired(reason: string, message: string, extra: Record<string, u
 function failed(reason: string, message: string, extra: Record<string, unknown> = {}): any {
   return { status: "FAILED", stage: "authorized_post", reason, message, ...extra };
 }
+function requestMethod(): any {
+  switch (REQUEST_METHOD.toUpperCase()) {
+    case "GET":
+      return Network.HttpRequest.Method.Get;
+    case "POST":
+      return Network.HttpRequest.Method.Post;
+    case "PUT":
+      return Network.HttpRequest.Method.Put;
+    default:
+      throw new Error(`Unsupported REQUEST_METHOD: ${REQUEST_METHOD}. Use GET, POST, or PUT.`);
+  }
+}
 function isRetryableApiResponse(response: any): boolean {
   if (!response || response.error) {
     return true;
@@ -71,7 +101,7 @@ function requestUrls(): string[] {
 }
 function requestMetadata(url: string): Record<string, unknown> {
   const base = SUBMISSION_API_BASES.find((candidate) => url.startsWith(candidate)) || "";
-  return { requestPath: REQUEST_PATH, url, ...(base ? { apiBaseUrl: base } : {}) };
+  return { requestPath: REQUEST_PATH, requestMethod: REQUEST_METHOD, url, ...(base ? { apiBaseUrl: base } : {}) };
 }
 function sendAuthorized(request: any): Promise<any> {
   return new Promise((resolve) => {
@@ -91,7 +121,7 @@ function apiError(response: any, rawBody: string, json: any, meta: Record<string
       ? json.message
       : typeof json?.error === "string"
         ? json.error
-        : `Authorized POST returned HTTP ${response?.statusCode ?? 0}.`;
+        : `Authorized request returned HTTP ${response?.statusCode ?? 0}.`;
   const actionReasons = new Set([
     "CATEGORY_REQUIRED",
     "CATEGORY_INVALID",
@@ -136,14 +166,16 @@ try {
   for (const url of requestUrls()) {
     const request = new Network.HttpRequest();
     request.url = url;
-    request.method = Network.HttpRequest.Method.Post;
+    request.method = requestMethod();
     request.contentType = "application/json";
     request.headers = {
       Accept: "application/json",
       ...(TENANT_ID ? { "Tenant-Id": TENANT_ID } : {}),
       ...EXTRA_HEADERS,
     };
-    request.body = JSON.stringify(BODY);
+    if (REQUEST_METHOD.toUpperCase() !== "GET") {
+      request.body = JSON.stringify(BODY);
+    }
 
     const response = await sendAuthorized(request);
     lastResponse = response;

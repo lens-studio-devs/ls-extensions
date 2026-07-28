@@ -6,15 +6,10 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-import time
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from . import command_dispatch
-from .commands.health import (
-    HEALTH_RECENT_ACTIVITY_MS,
-    HealthCommandsMixin,
-    _derive_health_state,
-)
 from .daemon_state import (
     DEFAULT_WAIT_TIMEOUT_MS,
     EVAL_NATIVE_FRAME_BELOW_MSG,
@@ -35,35 +30,27 @@ from .daemon_state import (
     SET_BREAKPOINT_UNRESOLVED_HINT,
     WARNING_CODE_GLOBAL_SCOPE_THIS,
     _TaggedEvent,
-    _WaitIdleState,
     _WaitState,
 )
 from .event_compaction import (
     compact_event,
     compact_remote_object,
+    extract_exception_text,
     frame_has_native_frame_below,
     is_async_stepper_frame_name,
 )
 from .handshake import attach_target, enable_domains
 from .json_io import Envelope
+from .probe import (
+    FRAME_FRESHNESS_MS,
+    PROBE_READ_JS,
+    VM_RESPONSIVE_PROBE_JS,
+    VM_RESPONSIVE_TIMEOUT_S,
+)
 from .sourcemap import SourceMap, find_source_location, parse_source_map
 from .target_discovery import discover_targets
 from .ts_resolve import TsResolveError, default_fetch_map, resolve_ts_breakpoint
 from .url_resolve import AmbiguousURL, URLNotFound, resolve_url
-
-# Re-exports — `_derive_health_state` and `HEALTH_RECENT_ACTIVITY_MS` come
-# from `commands/health.py`; everything else is defined inline below.
-__all__ = [
-    "CommandsMixin",
-    "CLEANUP_PER_COMMAND_TIMEOUT_S",
-    "HEALTH_RECENT_ACTIVITY_MS",
-    "LOCALS_ALL_TDZ_HINT",
-    "LOCALS_EMPTY_HINT",
-    "_derive_health_state",
-    "_is_command_timeout",
-    "_locals_hint",
-]
-
 
 # ----------------------------------------------------------------------
 # Family: lifecycle  (`cleanup`)
@@ -735,11 +722,260 @@ class _InspectionCommandsMixin:
         await self._finish_client(writer)  # type: ignore[attr-defined]
 
 
+# ----------------------------------------------------------------------
+# Family: health  (`health`)
+# ----------------------------------------------------------------------
+
+# Window for `vm_activity_age_ms` to count as positive liveness.
+HEALTH_RECENT_ACTIVITY_MS = 30000
+
+
+def _derive_health_state(
+    *,
+    exceptions: int,
+    playing: Any,
+    vm_responsive: Optional[bool],
+    vm_activity_age_ms: Optional[int],
+    execution_context: str,
+    scripts_parsed: int,
+    paused: bool,
+) -> str:
+    if paused:
+        return "paused"
+    if exceptions > 0:
+        return "init_throw"
+    if playing is True:
+        return "healthy_running"
+    if playing is False:
+        return "preview_idle"
+    # playing == "unknown"
+    if vm_responsive is True:
+        return "healthy_running"
+    if isinstance(vm_activity_age_ms, int) and vm_activity_age_ms <= HEALTH_RECENT_ACTIVITY_MS:
+        return "healthy_running"
+    if execution_context == "alive" and scripts_parsed > 0:
+        return "healthy_running"
+    # Negative signals: definite destruction, or alive-but-empty (a context
+    # that came up but never loaded a script — most often a stale target id).
+    if execution_context == "destroyed":
+        return "wrong_target"
+    if execution_context == "alive" and scripts_parsed == 0:
+        return "wrong_target"
+    # Fall-through: execution_context is "unknown" (we never saw
+    # executionContextCreated) and no positive signal — honest leftover,
+    # most often a fresh-attach race the caller should re-poll.
+    return "ambiguous"
+
+
+class _HealthCommandsMixin:
+    async def _handle_health(self, writer: asyncio.StreamWriter, caller_id: Any) -> None:
+        started_at = self.attached_at_iso or ""  # type: ignore[attr-defined]
+        now = datetime.now(timezone.utc)
+        uptime_s = 0.0
+        if started_at:
+            try:
+                attached_dt = datetime.strptime(started_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                uptime_s = max(0.0, (now - attached_dt).total_seconds())
+            except ValueError:
+                uptime_s = 0.0
+
+        paused_event = self._find_last_paused()  # type: ignore[attr-defined]
+        paused = paused_event is not None
+        pause_reason: Optional[str] = None
+        exception_text: Optional[str] = None
+        if paused_event is not None:
+            params = paused_event.get("params") or {}
+            reason = params.get("reason")
+            if isinstance(reason, str):
+                pause_reason = reason
+            if pause_reason == "exception":
+                exception_text = extract_exception_text(params.get("data"))
+
+        scripts_parsed = len(self._collect_parsed_scripts())  # type: ignore[attr-defined]
+
+        preview = await self._read_frame_probe()
+        # Any path that leaves playing=="unknown" (install failed or
+        # read broken) gets the vm_responsive fallback ping.
+        if preview.get("playing") == "unknown":
+            vm_responsive, vm_rtt_ms = await self._check_vm_responsive()
+            preview["vm_responsive"] = vm_responsive
+            preview["vm_responsive_rtt_ms"] = vm_rtt_ms
+        latest_iso, age_ms = self._compute_last_vm_activity()
+        preview["last_vm_activity_ts"] = latest_iso
+        preview["vm_activity_age_ms"] = age_ms
+
+        state = _derive_health_state(
+            exceptions=self.exceptions_seen,  # type: ignore[attr-defined]
+            playing=preview.get("playing"),
+            vm_responsive=preview.get("vm_responsive"),
+            vm_activity_age_ms=age_ms,
+            execution_context=self.execution_context_state,  # type: ignore[attr-defined]
+            scripts_parsed=scripts_parsed,
+            paused=paused,
+        )
+
+        # Prune structurally-null preview fields (LS v5.22+ drops the frame
+        # probe). vm_responsive* stays — it's the actionable signal when the
+        # probe is absent.
+        if preview.get("playing") == "unknown":
+            preview.pop("playing", None)
+        if preview.get("last_frame_ts") is None:
+            preview.pop("last_frame_ts", None)
+        if preview.get("frame_age_ms") is None:
+            preview.pop("frame_age_ms", None)
+        if preview.get("probe_error") == "unsupported":
+            preview.pop("probe_error", None)
+
+        result: dict[str, Any] = {
+            "state": state,
+            "session": {
+                "target_id": self.target_id,  # type: ignore[attr-defined]
+                "target_title": self.target_title,  # type: ignore[attr-defined]
+                "attached_at": started_at or None,
+                "uptime_s": round(uptime_s, 1),
+            },
+            "vm": {
+                "execution_context": self.execution_context_state,  # type: ignore[attr-defined]
+                "scripts_parsed": scripts_parsed,
+                "paused": paused,
+                "pause_reason": pause_reason,
+                # The thrown message when paused on an exception — the single
+                # most useful datum for init-throw / missing-await bugs. Omitted
+                # (not null) when not paused on a throw or when CDP gave no data.
+                **({"exception_text": exception_text} if exception_text else {}),
+            },
+            "activity_since_attach": {
+                "console_events": self.console_events_seen,  # type: ignore[attr-defined]
+                "exceptions": self.exceptions_seen,  # type: ignore[attr-defined]
+                "debugger_pauses": self.debugger_pauses_seen,  # type: ignore[attr-defined]
+                "last_console_ts": self.last_console_ts,  # type: ignore[attr-defined]
+                "last_exception_ts": self.last_exception_ts,  # type: ignore[attr-defined]
+                "last_script_parsed_ts": self.last_script_parsed_ts,  # type: ignore[attr-defined]
+            },
+            "preview": preview,
+        }
+        self._write_line(writer, Envelope.success(result, caller_id))  # type: ignore[attr-defined]
+        await self._finish_client(writer)  # type: ignore[attr-defined]
+
+    async def _read_frame_probe(self) -> dict[str, Any]:
+        if not self.probe_installed:  # type: ignore[attr-defined]
+            return {
+                "playing": "unknown",
+                "last_frame_ts": None,
+                "frame_age_ms": None,
+                "probe_error": self.probe_install_error,  # type: ignore[attr-defined]
+            }
+        resp = await self.client.send_command(  # type: ignore[attr-defined]
+            "Runtime.evaluate",
+            params={"expression": PROBE_READ_JS, "returnByValue": True, "silent": True},
+            session_id=self.page_session_id,  # type: ignore[attr-defined]
+        )
+        if "error" in resp:
+            return {
+                "playing": "unknown",
+                "last_frame_ts": None,
+                "frame_age_ms": None,
+                "probe_error": resp["error"].get("message", "eval failed"),
+            }
+        outer = resp.get("result") or {}
+        if "exceptionDetails" in outer:
+            details = outer["exceptionDetails"]
+            text = details.get("text") or (details.get("exception") or {}).get("description") or "eval threw"
+            return {
+                "playing": "unknown",
+                "last_frame_ts": None,
+                "frame_age_ms": None,
+                "probe_error": text,
+            }
+        inner = outer.get("result") or {}
+        val = inner.get("value")
+        if not isinstance(val, dict):
+            return {
+                "playing": "unknown",
+                "last_frame_ts": None,
+                "frame_age_ms": None,
+                "probe_error": "non-object probe value",
+            }
+        t = val.get("t")
+        now_ms = val.get("now")
+        kind = val.get("kind")
+        if kind != "updateEvent" or not isinstance(t, (int, float)) or not isinstance(now_ms, (int, float)):
+            return {
+                "playing": "unknown",
+                "last_frame_ts": None,
+                "frame_age_ms": None,
+                "probe_error": kind if isinstance(kind, str) else "missing probe fields",
+            }
+        age_ms = max(0, int(now_ms - t))
+        # CDP timestamps are ms-since-epoch; render to ISO-8601 UTC so the
+        # blob is consistent with attached_at and the other last_*_ts fields.
+        last_frame_ts = (
+            datetime.fromtimestamp(t / 1000.0, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if t > 0 else None
+        )
+        return {
+            "playing": age_ms <= FRAME_FRESHNESS_MS,
+            "last_frame_ts": last_frame_ts,
+            "frame_age_ms": age_ms,
+        }
+
+    async def _check_vm_responsive(self) -> tuple[bool, Optional[int]]:
+        if not self.page_session_id:  # type: ignore[attr-defined]
+            return False, None
+        loop = asyncio.get_event_loop()
+        started = loop.time()
+        try:
+            resp = await self.client.send_command(  # type: ignore[attr-defined]
+                "Runtime.evaluate",
+                params={
+                    "expression": VM_RESPONSIVE_PROBE_JS,
+                    "returnByValue": True,
+                    "silent": True,
+                },
+                session_id=self.page_session_id,  # type: ignore[attr-defined]
+                timeout_s=VM_RESPONSIVE_TIMEOUT_S,
+            )
+        except Exception:  # pragma: no cover - defensive
+            return False, None
+        rtt_ms = max(0, int((loop.time() - started) * 1000))
+        if "error" in resp:
+            return False, None
+        outer = resp.get("result") or {}
+        if "exceptionDetails" in outer:
+            return False, None
+        inner = outer.get("result") or {}
+        val = inner.get("value")
+        if not isinstance(val, (int, float)) or isinstance(val, bool):
+            return False, None
+        return True, rtt_ms
+
+    def _compute_last_vm_activity(self) -> tuple[Optional[str], Optional[int]]:
+        candidates = [
+            self.last_console_ts,  # type: ignore[attr-defined]
+            self.last_exception_ts,  # type: ignore[attr-defined]
+            self.last_pause_ts,  # type: ignore[attr-defined]
+            self.last_script_parsed_ts,  # type: ignore[attr-defined]
+        ]
+        iso_values = [t for t in candidates if t]
+        if not iso_values:
+            return None, None
+        # ISO-8601-Z sorts lexicographically == chronologically.
+        latest_iso = max(iso_values)
+        try:
+            latest_dt = datetime.strptime(latest_iso, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        except ValueError:
+            return latest_iso, None
+        age_ms = max(
+            0,
+            int((datetime.now(timezone.utc) - latest_dt).total_seconds() * 1000),
+        )
+        return latest_iso, age_ms
+
+
 class CommandsMixin(
     _BreakpointCommandsMixin,
     _InspectionCommandsMixin,
     _LifecycleCommandsMixin,
-    HealthCommandsMixin,
+    _HealthCommandsMixin,
 ):
     # ---------- target resolution + inline-attach ----------
     #
@@ -819,8 +1055,6 @@ class CommandsMixin(
     async def _attach_target_inline(self, target_id: str) -> tuple[bool, str]:
         if target_id in self.targets:  # type: ignore[attr-defined]
             return (True, "")
-
-        from datetime import datetime, timezone
 
         from .daemon_state import TargetSession
 
@@ -903,7 +1137,7 @@ class CommandsMixin(
             await self._handle_inspect_host_object(writer, parsed, caller_id)
             return
         if command == "health":
-            await self._handle_health(writer, caller_id, raw=bool(parsed.get("raw")))
+            await self._handle_health(writer, caller_id)
             return
 
         # Frame-less `eval` while paused → rewrite to `eval-on-frame` against
@@ -1023,14 +1257,10 @@ class CommandsMixin(
         source_echo: Optional[dict[str, Any]] = None,
     ) -> None:
         wait_for_method = ""
-        wait_for_idle_ms = 0
         wait_timeout_ms = DEFAULT_WAIT_TIMEOUT_MS
         wf = parsed.get("waitFor")
         if isinstance(wf, str):
             wait_for_method = wf
-        wfi = parsed.get("waitForIdleMs")
-        if isinstance(wfi, int) and not isinstance(wfi, bool) and wfi > 0:
-            wait_for_idle_ms = wfi
         wt = parsed.get("waitTimeout")
         if isinstance(wt, int) and not isinstance(wt, bool):
             wait_timeout_ms = wt
@@ -1159,9 +1389,7 @@ class CommandsMixin(
         self._write_line(writer, env)  # type: ignore[attr-defined]
 
         if not should_reload or env.get("ok") is not True:
-            await self._maybe_enter_wait_modes(
-                writer, wait_for_method, wait_for_idle_ms, wait_timeout_ms, dispatch_start_seq
-            )
+            await self._maybe_enter_wait_mode(writer, wait_for_method, wait_timeout_ms, dispatch_start_seq)
             return
 
         # Chain Page.reload on successful set-breakpoint --reload. The
@@ -1178,30 +1406,21 @@ class CommandsMixin(
         )
         if reload_env.get("ok") is not True:
             self._write_line(writer, reload_env)  # type: ignore[attr-defined]
-        await self._maybe_enter_wait_modes(
-            writer, wait_for_method, wait_for_idle_ms, wait_timeout_ms, dispatch_start_seq
-        )
+        await self._maybe_enter_wait_mode(writer, wait_for_method, wait_timeout_ms, dispatch_start_seq)
 
     # ---------- wait-for ----------
 
-    async def _maybe_enter_wait_modes(
+    async def _maybe_enter_wait_mode(
         self,
         writer: asyncio.StreamWriter,
         wait_for_method: str,
-        wait_for_idle_ms: int,
         wait_timeout_ms: int,
         since_seq: int,
     ) -> None:
-        if not wait_for_method and not wait_for_idle_ms:
+        if not wait_for_method:
             await self._finish_client(writer)  # type: ignore[attr-defined]
             return
-        if wait_for_method:
-            await self._enter_wait_mode(writer, wait_for_method, wait_timeout_ms, since_seq)
-            if writer not in self.waiting_clients:  # type: ignore[attr-defined]
-                # Synchronous replay already wrote envelope + sentinel.
-                return
-        if wait_for_idle_ms:
-            self._enter_wait_idle_mode(writer, wait_for_idle_ms, wait_timeout_ms)
+        await self._enter_wait_mode(writer, wait_for_method, wait_timeout_ms, since_seq)
 
     async def _enter_wait_mode(
         self,
@@ -1239,12 +1458,6 @@ class CommandsMixin(
         state = self.waiting_clients.pop(writer, None)  # type: ignore[attr-defined]
         if state is None:
             return
-        # Drop any composing --wait-for-idle entry so its satisfaction path
-        # doesn't write after we emit the timeout envelope + sentinel.
-        idle_state = self.waiting_idle_clients.pop(writer, None)  # type: ignore[attr-defined]
-        if idle_state is not None:
-            idle_state.idle_timer_task.cancel()
-            idle_state.hard_deadline_task.cancel()
         # Final buffer re-check: pause notifications can land between the
         # timer firing and this cleanup running. Surface the event rather
         # than a spurious timeout.
@@ -1271,81 +1484,6 @@ class CommandsMixin(
         )
         self._write_line(writer, {"__done": True})  # type: ignore[attr-defined]
         await self._drain(writer)  # type: ignore[attr-defined]
-
-    # ---------- wait-for-idle ----------
-
-    def _enter_wait_idle_mode(
-        self,
-        writer: asyncio.StreamWriter,
-        idle_ms: int,
-        hard_timeout_ms: int,
-    ) -> None:
-        now = time.monotonic()
-        idle_timer_task = asyncio.create_task(
-            self._wait_idle_timer_loop(writer),
-            name="lsdbg.wait-idle.timer",
-        )
-        hard_deadline_task = asyncio.create_task(
-            self._wait_idle_hard_deadline(writer, hard_timeout_ms),
-            name="lsdbg.wait-idle.deadline",
-        )
-        self.waiting_idle_clients[writer] = _WaitIdleState(  # type: ignore[attr-defined]
-            idle_threshold_ms=idle_ms,
-            idle_timer_task=idle_timer_task,
-            hard_deadline_task=hard_deadline_task,
-            events_observed=0,
-            started_monotonic=now,
-            last_event_monotonic=now,
-        )
-
-    async def _wait_idle_timer_loop(self, writer: asyncio.StreamWriter) -> None:
-        while True:
-            state = self.waiting_idle_clients.get(writer)  # type: ignore[attr-defined]
-            if state is None:
-                return
-            elapsed_ms = (time.monotonic() - state.last_event_monotonic) * 1000.0
-            if elapsed_ms >= state.idle_threshold_ms:
-                await self._wait_idle_satisfied(writer, "idle")
-                return
-            remaining_s = (state.idle_threshold_ms - elapsed_ms) / 1000.0
-            try:
-                await asyncio.sleep(remaining_s)
-            except asyncio.CancelledError:
-                return
-
-    async def _wait_idle_hard_deadline(self, writer: asyncio.StreamWriter, timeout_ms: int) -> None:
-        try:
-            await asyncio.sleep(timeout_ms / 1000.0)
-        except asyncio.CancelledError:
-            return
-        await self._wait_idle_satisfied(writer, "hard_timeout")
-
-    async def _wait_idle_satisfied(self, writer: asyncio.StreamWriter, stop_reason: str) -> None:
-        state = self.waiting_idle_clients.pop(writer, None)  # type: ignore[attr-defined]
-        if state is None:
-            return
-        # We're called *from* one of these tasks (timer loop or hard
-        # deadline). Cancelling the running task would deliver a
-        # CancelledError at the next await — `_finish_client`'s drain —
-        # truncating the response. Cancel only the sibling.
-        current = asyncio.current_task()
-        if state.idle_timer_task is not current:
-            state.idle_timer_task.cancel()
-        if state.hard_deadline_task is not current:
-            state.hard_deadline_task.cancel()
-        wait_for_state = self.waiting_clients.pop(writer, None)  # type: ignore[attr-defined]
-        if wait_for_state is not None:
-            wait_for_state.timer_task.cancel()
-        waited_ms = int((time.monotonic() - state.started_monotonic) * 1000)
-        result: dict[str, Any] = {
-            "events_observed": state.events_observed,
-            "waited_ms": waited_ms,
-            "stop_reason": stop_reason,
-        }
-        if stop_reason == "idle":
-            result["idle_ms_achieved"] = state.idle_threshold_ms
-        self._write_line(writer, Envelope.success(result))  # type: ignore[attr-defined]
-        await self._finish_client(writer)  # type: ignore[attr-defined]
 
     # ---------- error helpers ----------
 

@@ -169,7 +169,7 @@ Example — tap a path option to reveal a slider, drag the slider to reveal a la
 
 ## Multiplayer / Connected Lenses Sessions
 
-Multiplayer Lenses (Connected Lenses / SyncKit) only sync once **every** preview window has joined the session. The **Multiplayer** join button is an **in-lens SpectaclesUIKit element rendered inside the runtime** — each preview window draws its own copy. So you join the session the same way you trigger any other button: with `PreviewInteractTool` (`Pinch` or `Poke`), **once per preview window**.
+Multiplayer Lenses (Connected Lenses / SyncKit) only sync once **every** preview window has joined the session. The **Multiplayer** join button is an **in-Lens SpectaclesUIKit element rendered inside the runtime** — each preview window draws its own copy. So you join the session the same way you trigger any other button: with `PreviewInteractTool` (`Pinch` or `Poke`), **once per preview window**.
 
 **Before interacting with or verifying a multiplayer Lens:**
 
@@ -201,7 +201,7 @@ Interaction errors return a `reason` field. Handle by reason:
 | `not_found` | No interactable with that uniqueId | Re-run the discovery query — UIDs may have changed after a preview reset |
 | `disabled` | Interactable exists but is disabled | Skip, or check if a prior action should have enabled it |
 | `interactor_busy` | Hand is currently holding an object or mid-interaction | Check `handState` in the error response. Release the held object first, or use the other hand. |
-| `unknown_command` | The lens-side AgentInteractScript is not installed | Add `AiPreviewAgentInteract.lspkg` and `AgentInteractScript` to the Lens scene |
+| `unknown_command` | The Lens-side AgentInteractScript is not installed | Add `AiPreviewAgentInteract.lspkg` and `AgentInteractScript` to the Lens scene |
 | `INTERNAL_ERROR` | Lens-side exception, often surfaces as "Timed out waiting for onTriggerStart" on SIK Interactables — known issue, side-effects can land before the timeout | Do not blindly retry uniqueId-targeted SIK actions (they may double-apply); fall back to coordinate-targeted (`worldPosition`) actions or report the failure |
 
 ## Scroll View Pattern

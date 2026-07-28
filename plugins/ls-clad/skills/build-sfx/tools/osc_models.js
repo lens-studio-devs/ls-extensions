@@ -6,59 +6,96 @@
 // timbre — not pretty math waves. The delay-line pluck, multi-operator FM, and detuned-saw
 // stack are the three biggest "less synthetic" levers we have without samples.
 
-const { SAMPLE_RATE, TWO_PI, lowPass, lowPass2, highPass2 } = require('./audio_primitives');
+const { SAMPLE_RATE, TWO_PI, lowPass, lowPass2, highPass2, polyBlep } = require('./audio_primitives');
 
-// ─── Delay-line plucked-string model ────────────────────────
-// Excite a delay line of length floor(SR/freq) with a noise burst, then loop with
-// lowpass + feedback. Result: plucked harp/guitar/koto with natural decay.
-// opts.damping (0..1): higher = darker, faster decay. opts.brightness (0..1): exciter
-// spectral content; lower = warmer pluck. opts.exciter: 'noise'|'click'|'mallet'.
+// ─── Delay-line plucked-string model (Extended Karplus-Strong) ──────────────
+// Excite a delay line with a noise burst, then loop it through a damping filter
+// with feedback. This is the Jaffe & Smith (CMJ 7(2), 1983) extension of the
+// basic Karplus-Strong algorithm — patents US4,622,877 / US4,649,783 expired
+// ~2004; implemented clean-room from the published method. Key upgrades over a
+// plain integer-delay loop:
+//   1. Fractional-delay tuning via a first-order allpass — a plain integer delay
+//      is progressively FLAT at high pitch (measured -12 cents at 880 Hz, and
+//      tuning fell apart entirely above ~1.5 kHz). The allpass makes up the
+//      sub-sample remainder so every pitch is in tune.
+//   2. Pitch-independent decay: per-round-trip loop gain rho = 0.001^(1/(f0·t60))
+//      gives an exact -60 dB decay in t60 seconds regardless of pitch.
+//   3. A brightness-controlled one-zero damping filter inside the loop.
+//   4. A pick-position feedforward comb on the excitation (spectral notches a
+//      real pluck has).
+// opts.damping (0..1): higher = darker / faster HF loss. opts.brightness (0..1):
+// exciter spectral content. opts.exciter: 'noise'|'click'|'mallet'. opts.t60:
+// decay time in seconds (default derived from damping). opts.pickPos (0..0.5):
+// relative pick position along the string (0 disables the comb).
 function pluckedString(freq, duration, opts = {}) {
     const damping = opts.damping !== undefined ? opts.damping : 0.5;
     const brightness = opts.brightness !== undefined ? opts.brightness : 0.5;
     const exciter = opts.exciter || 'noise';
     const rng = opts.rng || Math.random;
+    const t60 = opts.t60 !== undefined ? opts.t60 : (1.0 + (1 - damping) * 3.5); // seconds to -60 dB
+    const pickPos = opts.pickPos !== undefined ? opts.pickPos : 0.0;
 
     const len = Math.floor(SAMPLE_RATE * duration);
     const out = new Float32Array(len);
-    const delayLen = Math.max(2, Math.floor(SAMPLE_RATE / freq));
-    const buf = new Float32Array(delayLen);
 
-    // Excite the delay line
+    // Total loop delay needed for this pitch, split into integer line + one-zero
+    // damping filter (phase delay ≈ b1) + a fractional allpass for the remainder.
+    const N = SAMPLE_RATE / freq;
+    const b1 = 0.25 + damping * 0.2;   // one-zero damping coefficient (also its LF phase delay)
+    const b0 = 1 - b1;
+    let L = Math.floor(N - b1 - 0.5);
+    if (L < 1) L = 1;
+    let D = N - L - b1;                 // fractional delay handed to the allpass
+    while (D < 0.1 && L > 1) { L -= 1; D += 1; }
+    while (D > 1.1) { L += 1; D -= 1; }
+    const eta = (1 - D) / (1 + D);      // first-order allpass coefficient
+
+    // Per-round-trip loop gain for an exact t60 (each delay slot is filtered once
+    // per round trip, i.e. once every L samples), so this is the round-trip loss.
+    const rho = Math.pow(0.001, 1 / (freq * t60));
+
+    const buf = new Float32Array(L);
+
+    // ─ Excite the delay line ─
     if (exciter === 'click') {
         buf[0] = 1.0;
-        buf[1] = 0.5;
+        if (L > 1) buf[1] = 0.5;
     } else if (exciter === 'mallet') {
-        // Soft mallet: half-sine bump
-        for (let i = 0; i < delayLen; i++) {
-            buf[i] = Math.sin(Math.PI * i / delayLen) * (1 - brightness * 0.3);
-        }
+        for (let i = 0; i < L; i++) buf[i] = Math.sin(Math.PI * i / L) * (1 - brightness * 0.3);
     } else {
-        for (let i = 0; i < delayLen; i++) buf[i] = (rng() * 2 - 1);
-        // Optionally tame brightness with a one-pole on the noise burst
+        for (let i = 0; i < L; i++) buf[i] = (rng() * 2 - 1);
         if (brightness < 0.9) {
             const cutoff = 200 + brightness * 8000;
             const rc = 1.0 / (TWO_PI * cutoff);
             const dt = 1.0 / SAMPLE_RATE;
             const alpha = dt / (rc + dt);
-            for (let i = 1; i < delayLen; i++) buf[i] = buf[i - 1] + alpha * (buf[i] - buf[i - 1]);
+            for (let i = 1; i < L; i++) buf[i] = buf[i - 1] + alpha * (buf[i] - buf[i - 1]);
         }
     }
 
-    // Loop: each sample is averaged with the next (1-pole lowpass inside the feedback loop)
-    // and scaled by (1 - damping*0.001) to allow long decay tails.
-    const lpMix = 0.5 + damping * 0.15;          // 0.5..0.65 — heavier LP = darker
-    const feedback = 1 - 0.0008 - damping * 0.003; // close to 1 for ring
+    // ─ Pick-position comb: y[n] = x[n] - x[n - round(pickPos·L)] ─
+    // Cancels harmonics with an antinode at the pick point (a real pluck near the
+    // bridge is brighter; pickPos≈0.5 thins even harmonics). Applied once to the
+    // excitation, outside the loop, so it costs nothing during the ring.
+    if (pickPos > 0) {
+        const d = Math.max(1, Math.round(pickPos * L));
+        const src = Float32Array.from(buf);
+        for (let i = 0; i < L; i++) buf[i] = src[i] - (i - d >= 0 ? src[i - d] : 0);
+    }
+
+    // ─ Loop: delay → fractional allpass → one-zero damping × rho → feedback ─
     let idx = 0;
-    let last = buf[delayLen - 1];
+    let lastIn = 0;          // x[n-1] for the one-zero damping filter
+    let apX1 = 0, apY1 = 0;  // first-order allpass state
     for (let i = 0; i < len; i++) {
-        const curr = buf[idx];
-        const next = lpMix * curr + (1 - lpMix) * last;
-        const filtered = next * feedback;
+        const delayed = buf[idx];
+        const apOut = eta * delayed + apX1 - eta * apY1;  // allpass fractional delay
+        apX1 = delayed; apY1 = apOut;
+        const filtered = rho * (b0 * apOut + b1 * lastIn); // damping + loss
+        lastIn = apOut;
         out[i] = filtered;
         buf[idx] = filtered;
-        last = curr;
-        idx = (idx + 1) % delayLen;
+        idx = (idx + 1) % L;
     }
     return out;
 }
@@ -146,59 +183,62 @@ function fmOperator(freq, duration, ratio, modIndex, modEnvFn) {
 // 4-operator FM stack. `ops` is [{ratio, level, envelope}, ...]. `algo` is one of:
 //   'stack4'  : 4 → 3 → 2 → 1  (serial, super-bright bells)
 //   'pair'    : (4 → 3) + (2 → 1)  (electric piano)
-//   'parallel': (4 → 1) + (3 → 1) + (2 → 1)  (organ-ish, lots of harmonics)
+//   'parallel': (2,3,4 → 1)  (organ-ish, lots of harmonics)
 //   'fan'     : 4 → [1, 2, 3] parallel  (chime/bell with rich body)
 // Each op envelope is a function (t in 0..1) → 0..1 amplitude multiplier.
+// A modulator's `level` is its modulation index in radians (its output is added
+// to the carrier's phase), so level ~1–3 gives strong sidebands, <0.5 subtle.
+//
+// Operators are evaluated in dependency order WITHIN each sample — modulators
+// first, then the carriers that read them. (A previous version computed all
+// operator outputs before wiring, which silently zeroed every modulation path:
+// the "FM" voices were pure sine mixes.)
 function fm4op(algo, ops, freq, duration) {
     const len = Math.floor(SAMPLE_RATE * duration);
     const out = new Float32Array(len);
-    const phases = ops.map(() => 0);
+    const phases = [0, 0, 0, 0];
     const steps = ops.map(op => TWO_PI * freq * op.ratio / SAMPLE_RATE);
+    const opVal = (o, t, mod) =>
+        Math.sin(phases[o] + mod) * ops[o].level * (ops[o].envelope ? ops[o].envelope(t) : 1);
 
     for (let i = 0; i < len; i++) {
         const t = i / len;
-        const phaseMod = new Array(ops.length).fill(0);
-        const opOut = new Array(ops.length).fill(0);
-
-        // Compute each op (modulators first, carriers reference them)
-        for (let o = ops.length - 1; o >= 0; o--) {
-            const env = ops[o].envelope ? ops[o].envelope(t) : 1;
-            opOut[o] = Math.sin(phases[o] + phaseMod[o]) * ops[o].level * env;
-        }
-
-        // Apply algorithm — wire op outputs into next phase mods
         let mix = 0;
         if (algo === 'stack4') {
-            phaseMod[2] = opOut[3];
-            phaseMod[1] = opOut[2];
-            phaseMod[0] = opOut[1];
-            mix = opOut[0];
+            const o3 = opVal(3, t, 0);
+            const o2 = opVal(2, t, o3);
+            const o1 = opVal(1, t, o2);
+            mix = opVal(0, t, o1);
         } else if (algo === 'pair') {
-            phaseMod[2] = opOut[3];
-            phaseMod[0] = opOut[1];
-            mix = opOut[2] + opOut[0];
+            const o3 = opVal(3, t, 0);
+            const o1 = opVal(1, t, 0);
+            mix = opVal(2, t, o3) + opVal(0, t, o1);
         } else if (algo === 'parallel') {
-            phaseMod[0] = opOut[1] + opOut[2] + opOut[3];
-            mix = opOut[0];
+            const modSum = opVal(1, t, 0) + opVal(2, t, 0) + opVal(3, t, 0);
+            mix = opVal(0, t, modSum);
         } else if (algo === 'fan') {
-            phaseMod[0] = opOut[3];
-            phaseMod[1] = opOut[3];
-            phaseMod[2] = opOut[3];
-            mix = opOut[0] + opOut[1] + opOut[2];
+            const o3 = opVal(3, t, 0);
+            mix = opVal(0, t, o3) + opVal(1, t, o3) + opVal(2, t, o3);
         } else {
-            // default: pure mix of carriers
-            for (let o = 0; o < ops.length; o++) mix += opOut[o];
+            // default: pure mix of all ops as carriers
+            for (let o = 0; o < ops.length; o++) mix += opVal(o, t, 0);
         }
         out[i] = mix;
-
         for (let o = 0; o < ops.length; o++) phases[o] += steps[o];
     }
     return out;
 }
 
-// ─── Detuned-stack oscillator ──────────────────────────────
-// N voices, slightly detuned in cents, summed. The classic "supersaw" / fat pad voice.
-// opts.voices (3..7), opts.detuneCents (total spread), opts.waveform, opts.stereoSpread (0..1).
+// ─── Detuned-stack oscillator ("supersaw") ──────────────────
+// N voices, slightly detuned in cents, summed. The classic fat pad / supersaw
+// voice. Saw and square voices are band-limited per-voice with PolyBLEP — the
+// old inline naive saws aliased ~20 dB under the harmonics (audible grit on the
+// most-used melodic voices: pad, lead, brass). Random per-voice phase avoids the
+// coherent attack flam on repeated notes.
+// opts.voices (2..7), opts.detuneCents (total spread), opts.waveform,
+// opts.stereoSpread (0..1). opts.hpfTrack: if set, a 2nd-order high-pass tracks
+// the fundamental at hpfTrack·freq (≈0.9) — the JP-8000 trick that removes the
+// sub-fundamental beating "mud" between detuned voices and tightens the low end.
 // Returns stereo {left, right} when stereoSpread > 0, mono Float32Array otherwise.
 function detunedStack(freq, duration, opts = {}) {
     const voices = opts.voices || 5;
@@ -213,40 +253,54 @@ function detunedStack(freq, duration, opts = {}) {
     const right = stereoSpread > 0 ? new Float32Array(len) : null;
 
     // Voice detunings: spread evenly from -detuneCents/2 to +detuneCents/2, plus a small jitter
-    const phases = new Float32Array(voices);
-    const freqs = new Float32Array(voices);
-    const pans = new Float32Array(voices); // -1..1
+    const phase = new Float32Array(voices); // normalized phase 0..1
+    const dts = new Float32Array(voices);   // per-sample phase increment
+    const pans = new Float32Array(voices);  // -1..1
     for (let v = 0; v < voices; v++) {
-        const cents = ((v / (voices - 1)) - 0.5) * detuneCents + (rng() - 0.5) * 1.5;
-        freqs[v] = freq * Math.pow(2, cents / 1200);
-        phases[v] = rng() * TWO_PI; // random phase = no coherent flam at attack
+        const cents = ((v / Math.max(1, voices - 1)) - 0.5) * detuneCents + (rng() - 0.5) * 1.5;
+        const f = freq * Math.pow(2, cents / 1200);
+        dts[v] = f / SAMPLE_RATE;
+        phase[v] = rng();                    // random start phase (no coherent attack flam)
         pans[v] = ((v / Math.max(1, voices - 1)) - 0.5) * 2 * stereoSpread;
     }
 
     const gainPerVoice = 1 / Math.sqrt(voices); // equal-power sum
+    const bl = waveform === 'sawtooth' || waveform === 'square';
 
     for (let i = 0; i < len; i++) {
         for (let v = 0; v < voices; v++) {
-            const p = (phases[v] % TWO_PI) / TWO_PI;
+            let p = phase[v];
+            const dt = dts[v];
             let sample;
             switch (waveform) {
-                case 'square':   sample = p < 0.5 ? 1 : -1; break;
+                case 'square':
+                    sample = (p < 0.5 ? 1 : -1) + polyBlep(p, dt) - polyBlep((p + 0.5) % 1, dt);
+                    break;
                 case 'triangle': sample = 4 * Math.abs(p - 0.5) - 1; break;
-                case 'sine':     sample = Math.sin(phases[v]); break;
-                default:         sample = 2 * p - 1; break;
+                case 'sine':     sample = Math.sin(TWO_PI * p); break;
+                default:         sample = (2 * p - 1) - polyBlep(p, dt); break; // band-limited saw
             }
             sample *= gainPerVoice;
             if (left) {
-                const pan = pans[v];
-                const angle = (pan + 1) * 0.25 * Math.PI;
+                const angle = (pans[v] + 1) * 0.25 * Math.PI;
                 left[i] += sample * Math.cos(angle);
                 right[i] += sample * Math.sin(angle);
             } else {
                 mono[i] += sample;
             }
-            phases[v] += TWO_PI * freqs[v] / SAMPLE_RATE;
+            p += dt;
+            if (p >= 1) p -= 1;
+            phase[v] = p;
         }
     }
+
+    // Optional fundamental-tracking high-pass (supersaw "mud" removal).
+    if (opts.hpfTrack) {
+        const hpf = Math.min(SAMPLE_RATE * 0.45, opts.hpfTrack * freq);
+        if (left) { highPass2(left, hpf, 0.707); highPass2(right, hpf, 0.707); }
+        else highPass2(mono, hpf, 0.707);
+    }
+
     if (left) return { left, right };
     return mono;
 }

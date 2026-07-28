@@ -13,7 +13,7 @@ SPDX-License-Identifier: Apache-2.0
 **Requirements:** Lens Studio v5.3+. Add `InternetModule` to project assets.
 
 > **Privacy:** Internet access disables camera frame / location / audio. Use Extended Permissions for combined access.
-> Preview only works with **Device Type Override = Specs**.
+> Preview only works with **Device Type Override = SPECS 27**.
 
 > **Keep everything programmatic. Do not rely on the Inspector.** AI-driven workflows must produce scripts that run end-to-end without a human dragging assets, wiring references, or tweaking UI fields in the editor. That means:
 > - **Modules:** acquire singletons with `require('LensStudio:InternetModule')` / `require('LensStudio:RemoteMediaModule')` instead of `@input` fields. The script stays self-contained and reproducible.

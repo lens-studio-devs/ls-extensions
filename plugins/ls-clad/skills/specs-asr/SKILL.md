@@ -15,7 +15,7 @@ SPDX-License-Identifier: Apache-2.0
 
 **Not recommended for voice commands / keyword spotting.** ASR is capable of returning text you can keyword-match against, but in practice keyword detection is unreliable — partial transcripts churn, finals arrive late, and short command words are often misrecognized. If you need voice commands, expect poor results and design a fallback (pinch, button, gaze). Prefer ASR for free-form speech, not trigger phrases.
 
-**Requirements:** Lens Studio v5.9+, Spectacles OS v5.61+. Works in both Lens Studio Preview and on-device.
+**Requirements:** Lens Studio v5.9+, Snap OS v5.61+. Works in both Lens Studio Preview and on-device.
 
 > Hardcode options in code (silence timeout, mode, logging) — only expose `@input` when a non-engineer needs to tune it.
 

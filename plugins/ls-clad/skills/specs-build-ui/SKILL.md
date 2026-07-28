@@ -128,13 +128,17 @@ Defaults from `references/spectacles-spatial-design.md` (already in repo):
 
 ### 7. Generate the script
 
-Create the file at `Assets/Scripts/<Name>.ts` (flat — no `UI/` subfolder). Use the patterns from `references/patterns.md` as the starting template. Always:
+Create the file at the caller-provided target path when one is passed — the `specs-experience-builder` orchestrator passes a flat, experience-prefixed path such as `Assets/Scripts/<ExperienceName><PanelName>UI.ts` and may invoke this skill once per UI module. When invoked standalone with no path, default to `Assets/Scripts/<Name>.ts`. Either way, write flat into `Assets/Scripts/` — never invent a subfolder of your own. Use the patterns from `references/patterns.md` as the starting template. Always:
 
 1. `this.sceneObject.createComponent("Component.Canvas")` at root — defaults to `SortingType.Hierarchy`, which is what every pattern in this skill relies on
 2. Frame or BackPlate (created BEFORE the Content child so hierarchy DFS draws them first)
 3. Content child SceneObject at z=0.6 (created AFTER the backing so hierarchy DFS draws it on top)
 4. FlexLayout column on Content
 5. Children via private helper methods (header, row, card, etc.) — see examples
+
+**Expose the opinions you bake in, not just what the caller listed.** Every visual choice you make that the caller didn't dictate — text/icon colors, the glyph or symbol content of a mark, font family/size, corner radius, backing tint, highlight color, animation speed/duration, default label strings — is an opinion the user may want to change. Expose each as an `@input` with your pick as the default and the matching widget (colors as `vec3`/`vec4` + `@widget(new ColorWidget())`, content as `string`, sizes as numbers, discrete picks via `ComboBoxWidget`). Hardcode only what would break the layout if changed. Don't ship a panel whose only knob is a size while every color and label is a literal.
+
+**Present the tunable `@input`s legibly.** Those params — plus anything the caller explicitly asked for (width/height, padding, row/column gap, label text, theme colors, default visibility) — follow the Inspector-layout convention in `ls-clad/skills/lens-api/references/conventions.md`: a `@ui.label` header + `@ui.separator` for the component, `@ui.group_start("Settings")` around the tunables, a `@hint(...)` on every field, and the right widget per type — `@widget(new ColorWidget())` on every `vec3`/`vec4` color (bare color inputs render as raw number boxes, not a picker), `@widget(new SliderWidget(min, max, step))` on bounded numerics (gap/padding/sizes), `@widget(new ComboBoxWidget([...]))` on discrete picks — plus a stable default on each. Never emit a hint-less or bare-widget `@input`.
 
 **Never** call `someComponent.renderOrder = N` or `mat.mainPass.depthWrite = true` on Image materials inside the generated script — see Core mental model → Render-order rules.
 
@@ -164,7 +168,7 @@ Common drift patterns to avoid: inserting a `UI/` or `Element/` segment that doe
 
 ### 8. Wire into the scene
 
-**Skip this entire step when the orchestrator (`specs-experience-builder`) is driving** — its Phase 3a bootstrap owns scene composition and material creation. The skill's job in that mode is to produce `<Name>UI.ts` only.
+**Skip this entire step when the orchestrator (`specs-experience-builder`) is driving** — its Phase 3a bootstrap owns scene composition and material creation. The skill's job in that mode is to produce the UI `@component` module(s) at the orchestrator-provided flat `Assets/Scripts/` path(s) only.
 
 When invoked **standalone**, after writing the script, call the `RecompileTypeScriptTool` MCP tool. If `succeeded`:
 
@@ -292,7 +296,7 @@ Each UI module is a self-contained `@component class extends BaseScriptComponent
 - **Main → UI** (push state into UI): the UI exposes public methods that take primitive data.
 - **UI → Main** (user input flows back): the UI exposes `Event<T>` instances (typed event emitters from SIK) and the main script subscribes.
 
-The main script declares the handle directly with the UI class type: `@input uiHud!: StatusHUD` (Lens Studio resolves the wired ScriptComponent to the typed class at runtime — see [Accessing TypeScript from TypeScript](https://developers.snap.com/lens-studio/features/scripting/accessing-components#accessing-typescript-from-typescript)). No `.getScript()`, no cast.
+The main script declares one handle per UI module directly with its class type: `@input statusHud!: StatusHUD` (Lens Studio resolves the wired ScriptComponent to the typed class at runtime — see [Accessing TypeScript from TypeScript](https://developers.snap.com/lens-studio/features/scripting/accessing-components#accessing-typescript-from-typescript)). No `.getScript()`, no cast.
 
 ```typescript
 import Event, {PublicApi} from "SpectaclesInteractionKit.lspkg/Utils/Event"
@@ -320,13 +324,13 @@ export class StatusHUD extends BaseScriptComponent {
 // Main game script
 import {StatusHUD} from "./StatusHUD"
 
-@input uiHud!: StatusHUD   // typed as the UI class — wired in the scene, used directly
+@input statusHud!: StatusHUD   // typed as the UI class — wired in the scene, used directly
 
 onAwake() {
-  this.uiHud.onDismiss.add(() => { /* react to user dismissing the HUD */ })
+  this.statusHud.onDismiss.add(() => { /* react to user dismissing the HUD */ })
 
   this.createEvent("OnStartEvent").bind(() => {
-    this.uiHud.setMessage("Connected.")
+    this.statusHud.setMessage("Connected.")
   })
 }
 ```
@@ -386,7 +390,7 @@ this.flexChild(parent, {w: 12, h: 2.4}, (child) => {
 
 ## Color & Typography Guide
 
-### Additive Display Rules (Spectacles)
+### Additive Display Rules (Specs)
 
 - **Black = transparent.** Pure black cannot be rendered — it disappears.
 - **White = boldest/brightest.** Design in "dark mode" patterns.

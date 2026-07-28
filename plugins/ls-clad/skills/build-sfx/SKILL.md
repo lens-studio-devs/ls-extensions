@@ -36,11 +36,53 @@ const ENGINE = '<ABSOLUTE_PATH_TO_PROJECT>/<repo>/plugins/ls-clad/skills/build-s
 const audio = require(ENGINE);
 ```
 
-Exported namespaces: `audio.audio_primitives`, `audio.osc_models`, `audio.synth_voices`, `audio.humanize`, `audio.mix_bus`, `audio.ir_generator`, `audio.granular`, `audio.transient_designer`, plus the flat re-exports of audio_primitives (`audio.sine`, `audio.lowPass2`, etc.) and `audio.WavBuilder`.
+Exported namespaces: `audio.audio_primitives`, `audio.osc_models`, `audio.synth_voices`, `audio.humanize`, `audio.mix_bus`, `audio.ir_generator`, `audio.granular`, `audio.transient_designer`, `audio.sfx_presets`, plus the flat re-exports of audio_primitives (`audio.sine`, `audio.lowPass2`, etc.) and `audio.WavBuilder`.
 
-## Categories with recipes
+## Presets FIRST — `audio.sfx_presets` (use before hand-rolling anything)
 
-Each recipe is ~5–10 lines; combine and tune parameters.
+`sfx_presets` is a curated library of layered, production-quality SFX. Each preset builds the sound the way designed foley is built (transient + body + air/texture) and draws small parameter variations from a seeded RNG — **two calls produce siblings, not clones**. Hand-roll DSP only when no preset (with knobs) fits the request; a single sweep + ADSR is exactly the "janky beep" failure mode these exist to prevent.
+
+```js
+const p = audio.sfx_presets;
+const buf = p.uiClick({ character: 'soft' });   // omit seed → fresh variation each run
+// pass { seed: 12345 } only to reproduce a take you already liked
+audio.mix_bus.masterChain(buf, { normalize: 'peak' });
+audio.WavBuilder.write(buf, path.join(PROJECT_ASSETS_SFX, 'click.wav'));
+```
+
+| Preset | Sound | Knobs |
+|---|---|---|
+| `uiClick` | Physical button click (tick + mechanism + low thock) | `character: 'soft'\|'sharp'`, `pitch` (±semitones) |
+| `uiPop` | Bubble pop | `pitch` |
+| `uiBlip` | FM confirmation blip (ratio/index vary per call) | `pitch` |
+| `uiHover` | Soft airy hover/focus cue (quiet by design) | `pitch` |
+| `uiToggle` | Two-blip toggle; rising = on, falling = off | `on: bool`, `pitch` |
+| `uiSuccess` | Ascending mallet/bell arpeggio + sparkle dust, random key/shape | — |
+| `uiError` | Two-tone descending buzz, firm but controlled | `pitch` |
+| `uiNotify` | Two-bell ding-dong at a random consonant interval | — |
+| `whoosh` | Doppler-arc noise fly-by with stereo pan sweep | `duration`, `size`, `direction: 'by'\|'up'\|'down'` |
+| `swish` | Short arm-swing swish | same as whoosh |
+| `riser` | Tension build peaking at the end | `duration` |
+| `powerDown` | Descending spin-down | `pitch` |
+| `powerUp` | Ascending tonal step arpeggio | `retro: false` for clean |
+| `impact` | Layered impact — the flagship | `material: 'soft'\|'wood'\|'metal'\|'glass'\|'stone'`, `size` |
+| `footstep` | Heel+toe two-contact step; surface layer dominates | `surface: 'hard'\|'wood'\|'grass'\|'gravel'\|'snow'` |
+| `waterDrop` | Drip + rising "bloop" resonance | `pitch` |
+| `coin` / `jump` / `pickup` / `hurt` | Retro game one-shots (random key per call) | `pitch`, `retro` |
+| `laser` | Saw zap + FM pew | `size` |
+| `explosion` | Crack + boom + sub + debris crackle | `size`, `retro` |
+| `sparkle` | Shimmer grain cloud + bell pings | `duration` |
+| `magicChime` | Rising bell glissando, chorus + plate | — |
+
+Ambient beds stay in `audio.granular`: `windTexture`, `rainTexture`, `crowdMurmur`, `thunderRumble`, `roomTone` — these also produce a **fresh variation per run** unless you pass `{ seed }`.
+
+**Variety rule:** when a lens needs several similar sounds (3 footsteps, 4 clicks), call the preset once per asset with no seed — the built-in variation is what makes repeated playback feel alive. Never render one WAV and reuse it for all variants if the request implies variation.
+
+**Customizing:** presets return raw buffers, so you can post-process with `mix_bus.applyFx` (extra reverb, crush, pan) or layer them (`impact({material:'metal'})` + `sparkle()` = magic hit). If a preset is close but not right, start from its opts knobs, then FX, and only then hand-roll.
+
+## Custom recipes (when no preset fits)
+
+Each recipe is ~5–10 lines; combine and tune parameters. **Always layer** — attack + body + (optionally) texture. Single-layer sounds read as cheap.
 
 ### UI sounds
 
@@ -249,7 +291,7 @@ return audio.mix_bus.applyFx(jump, { crush: 5, gain: 0.55 });
 
 Pass to `audio.mix_bus.applyFx(buf, fx)`. The chain order is fixed inside `applyFx`; specifying a key means "apply that step." Order:
 
-`hpf → lpf → bpf → vowel → distort → crush → phaser → delay → reverb → compressor → gain → pan`
+`hpf → lpf → bpf → vowel → distort → crush → phaser → chorus → delay → reverb → compressor → gain → pan → width`
 
 | Key | Value form | Notes |
 |---|---|---|
@@ -260,11 +302,15 @@ Pass to `audio.mix_bus.applyFx(buf, fx)`. The chain order is fixed inside `apply
 | `distort` | `amount` or `{ amount }` | tanh-based; 1 mild, 30+ extreme. |
 | `crush` | `bits` or `{ bits }` | 1–8 retro; 12+ subtle. |
 | `phaser` | `{ rate, depth, stages }` | Allpass sweep. |
+| `chorus` | `true` or `{ voices, rateHz, depthMs, delayMs, mix }` | Ensemble (modulated delay). Promotes mono → stereo. Lush on pads/drones. |
 | `delay` | `{ time, feedback, wet }` | Tape delay. |
-| `reverb` | preset name or `{ duration, roomSize, hfDamping, wet }` | Convolution. Presets: `smallRoom`, `mediumRoom`, `largeHall`, `cathedral`, `plate`, `spring`. Promotes mono → stereo. |
-| `compressor` | `{ threshold, makeup }` | Soft limiter. |
+| `reverb` | preset name or `{ duration, roomSize, hfDamping, wet }` | Convolution (velvet-noise IR, per-band decay). Presets: `smallRoom`, `mediumRoom`, `largeHall`, `cathedral`, `plate`, `spring`. Promotes mono → stereo. |
+| `compressor` | `{ threshold(dB), ratio, attack, release, makeup }` → real feed-forward compressor; `{ threshold(0..1), makeup }` (no ratio/attack) → legacy soft-limiter ceiling | |
 | `gain` | linear multiplier | |
 | `pan` | -1..+1 | Constant-power. Promotes mono → stereo. |
+| `width` | M/S multiplier or `{ width, lowMonoHz }` | >1 wider, <1 narrower, 0 mono. `lowMonoHz` keeps bass centered. |
+
+**Sidechain ducking:** `audio.mix_bus.sidechainDuck(target, key, { depth: 6 })` ducks `target` by the energy of `key` (e.g. duck a bass/pad under a kick). Mutates `target` in place.
 
 ## Mixing rules for SFX
 
@@ -277,7 +323,9 @@ Pass to `audio.mix_bus.applyFx(buf, fx)`. The chain order is fixed inside `apply
 
 Before writing the WAV, check that you did at least the relevant ones for the request:
 
-- [ ] **Impact-style SFX** → used `transient_designer.designImpact` or hand-rolled attack + body layers.
+- [ ] **Checked `sfx_presets` first** → a preset (plus knobs/FX) covers most UI, impact, movement, retro, and magic requests. Hand-rolled only because nothing fit.
+- [ ] **No seed passed** (unless reproducing a specific take) → repeated builds of the same lens get sibling sounds, not clones.
+- [ ] **Impact-style SFX** → used `sfx_presets.impact` / `transient_designer.designImpact` or hand-rolled attack + body layers.
 - [ ] **Drones / pads / ambients longer than 1 s** → ran `humanize.ampWobble` and/or used a `granular.*` texture.
 - [ ] **Reverb where appropriate** → used `mix_bus.applyFx({ reverb: ... })` (convolution IR) instead of bare `delay`.
 - [ ] **Pitched body** → has at least a hint of natural decay (don't truncate ringing tails with sharp ADSR releases).
@@ -302,3 +350,7 @@ audio.WavBuilder.write(result, path.join(PROJECT_ASSETS_SFX, '<name>.wav'));
 ```
 
 For the full script setup pattern (path construction, `rm -f` guard, node preflight), see [`references/asset-gen-preflight.md`](references/asset-gen-preflight.md).
+
+## License provenance (read before editing `tools/`)
+
+This engine is fully algorithmic — **no samples, no datasets, no model weights** — so every SFX it produces is license-clean by construction, and the repo syncs to a public Apache-2.0 mirror. When extending the DSP: **allowed** sources are published papers/algorithms (PolyBLEP, Karplus-Strong, FM, velvet-noise reverb, the JAES compressor, RBJ biquads — patents expired, math is uncopyrightable), public-domain code (Freeverb, the Kellett pink-noise filter, `mulberry32` CC0), and MIT/BSD code with its notice preserved (sfxr, STK). **Forbidden:** porting or pasting code from SuperCollider, TidalCycles, Csound (GPL/LGPL) or Strudel (AGPL) — re-derive from their papers/docs instead.

@@ -4,11 +4,11 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import os
 import stat
 import sys
-from collections import deque
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -22,7 +22,6 @@ from .daemon_state import (
     TargetSession,
     _BlockingLogState,  # re-exported
     _TaggedEvent,  # re-exported (test imports use this path)
-    _WaitIdleState,  # re-exported
     _WaitState,  # re-exported
 )
 from .handshake import enable_domains, perform_handshake
@@ -48,7 +47,6 @@ __all__ = [
     "run_attach",
     "_BlockingLogState",
     "_TaggedEvent",
-    "_WaitIdleState",
     "_WaitState",
     "_is_pollable",
 ]
@@ -61,6 +59,12 @@ __all__ = [
 # and an event-handling coroutine each see their own value without
 # clobbering each other under concurrent multi-target work.
 active_target_var: ContextVar[Optional[str]] = ContextVar("lsdbg_active_target", default=None)
+
+
+# Per-target attrs that AttachDaemon forwards to the active TargetSession via
+# __getattr__/__setattr__. `target_id` is excluded — it keeps an explicit
+# property because its setter re-keys the targets map.
+_FORWARDED = frozenset(f.name for f in dataclasses.fields(TargetSession)) - {"target_id"}
 
 
 # ----------------------------------------------------------------------
@@ -112,10 +116,6 @@ class _SocketMixin:
             state = self.waiting_clients.pop(writer, None)  # type: ignore[attr-defined]
             if state is not None:
                 state.timer_task.cancel()
-            idle_state = self.waiting_idle_clients.pop(writer, None)  # type: ignore[attr-defined]
-            if idle_state is not None:
-                idle_state.idle_timer_task.cancel()
-                idle_state.hard_deadline_task.cancel()
             blocking = self.blocking_console_clients.pop(writer, None)  # type: ignore[attr-defined]
             if blocking is not None and blocking.deadline_task is not None:
                 blocking.deadline_task.cancel()
@@ -237,13 +237,11 @@ class AttachDaemon(
     CommandsMixin,
     _StdinMixin,
 ):
-    def __init__(self, host: str, port: int, target_id: str, verbose: bool) -> None:
+    def __init__(self, host: str, port: int, target_id: str) -> None:
         self.host = host
         self.port = port
-        self.verbose = verbose
 
         self.client = CdpClient()
-        self.client.set_verbose(verbose)
         self.client.set_disconnect_diagnostics(self._disconnect_diagnostics)
 
         # Per-target state lives in TargetSession; the daemon owns N of them
@@ -266,10 +264,6 @@ class AttachDaemon(
 
         # Per-writer state, indexed by StreamWriter.
         self.waiting_clients: dict[asyncio.StreamWriter, _WaitState] = {}
-        # `--wait-for-idle` clients. Same writer may also be in
-        # `waiting_clients` when --wait-for and --wait-for-idle compose;
-        # the first satisfaction path drops the other entry.
-        self.waiting_idle_clients: dict[asyncio.StreamWriter, _WaitIdleState] = {}
 
         self.server: Optional[asyncio.AbstractServer] = None
         self.socket_artifact: str = ""  # AF_UNIX path, or "tcp:host:port"
@@ -285,9 +279,22 @@ class AttachDaemon(
     # ---------- per-target state access ----------
     #
     # Handlers read/write through the active TargetSession (resolved per-task
-    # via the contextvar in `_current_session`). These forwarding properties
-    # keep call sites like `self.console_buffer` / `self.next_seq += 1` working
-    # unchanged and let tests poke per-target attrs directly.
+    # via the contextvar in `_current_session`). __getattr__/__setattr__ forward
+    # the TargetSession fields in `_FORWARDED` so call sites like
+    # `self.console_buffer` / `self.next_seq += 1` route to the right session
+    # unchanged. __getattr__ fires only on a normal-lookup miss, so daemon-global
+    # attrs and the `target_id` property are unaffected.
+
+    def __getattr__(self, name: str) -> Any:
+        if name in _FORWARDED:
+            return getattr(self._current_session(), name)
+        raise AttributeError(name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name in _FORWARDED:
+            setattr(self._current_session(), name, value)
+        else:
+            object.__setattr__(self, name, value)
 
     def _current_session(self) -> TargetSession:
         # Per-task contextvar wins so a command coroutine and an event
@@ -323,158 +330,6 @@ class AttachDaemon(
         sess.target_id = value
         self.targets[value] = sess
         self._active_target_id = value
-
-    @property
-    def page_session_id(self) -> str:
-        return self._current_session().page_session_id
-
-    @page_session_id.setter
-    def page_session_id(self, value: str) -> None:
-        self._current_session().page_session_id = value
-
-    @property
-    def target_title(self) -> str:
-        return self._current_session().target_title
-
-    @target_title.setter
-    def target_title(self, value: str) -> None:
-        self._current_session().target_title = value
-
-    @property
-    def attached_at_iso(self) -> str:
-        return self._current_session().attached_at_iso
-
-    @attached_at_iso.setter
-    def attached_at_iso(self, value: str) -> None:
-        self._current_session().attached_at_iso = value
-
-    @property
-    def event_buffer(self) -> deque:
-        return self._current_session().event_buffer
-
-    @event_buffer.setter
-    def event_buffer(self, value: deque) -> None:
-        self._current_session().event_buffer = value
-
-    @property
-    def parsed_scripts(self) -> dict:
-        return self._current_session().parsed_scripts
-
-    @property
-    def next_seq(self) -> int:
-        return self._current_session().next_seq
-
-    @next_seq.setter
-    def next_seq(self, value: int) -> None:
-        self._current_session().next_seq = value
-
-    @property
-    def console_buffer(self) -> deque:
-        return self._current_session().console_buffer
-
-    @console_buffer.setter
-    def console_buffer(self, value: deque) -> None:
-        self._current_session().console_buffer = value
-
-    @property
-    def tracked_breakpoints(self) -> set:
-        return self._current_session().tracked_breakpoints
-
-    @tracked_breakpoints.setter
-    def tracked_breakpoints(self, value: set) -> None:
-        self._current_session().tracked_breakpoints = value
-
-    @property
-    def pause_on_exceptions_state(self) -> str:
-        return self._current_session().pause_on_exceptions_state
-
-    @pause_on_exceptions_state.setter
-    def pause_on_exceptions_state(self, value: str) -> None:
-        self._current_session().pause_on_exceptions_state = value
-
-    @property
-    def source_map_cache(self) -> dict:
-        return self._current_session().source_map_cache
-
-    @property
-    def console_events_seen(self) -> int:
-        return self._current_session().console_events_seen
-
-    @console_events_seen.setter
-    def console_events_seen(self, value: int) -> None:
-        self._current_session().console_events_seen = value
-
-    @property
-    def exceptions_seen(self) -> int:
-        return self._current_session().exceptions_seen
-
-    @exceptions_seen.setter
-    def exceptions_seen(self, value: int) -> None:
-        self._current_session().exceptions_seen = value
-
-    @property
-    def debugger_pauses_seen(self) -> int:
-        return self._current_session().debugger_pauses_seen
-
-    @debugger_pauses_seen.setter
-    def debugger_pauses_seen(self, value: int) -> None:
-        self._current_session().debugger_pauses_seen = value
-
-    @property
-    def last_console_ts(self) -> Optional[str]:
-        return self._current_session().last_console_ts
-
-    @last_console_ts.setter
-    def last_console_ts(self, value: Optional[str]) -> None:
-        self._current_session().last_console_ts = value
-
-    @property
-    def last_exception_ts(self) -> Optional[str]:
-        return self._current_session().last_exception_ts
-
-    @last_exception_ts.setter
-    def last_exception_ts(self, value: Optional[str]) -> None:
-        self._current_session().last_exception_ts = value
-
-    @property
-    def last_script_parsed_ts(self) -> Optional[str]:
-        return self._current_session().last_script_parsed_ts
-
-    @last_script_parsed_ts.setter
-    def last_script_parsed_ts(self, value: Optional[str]) -> None:
-        self._current_session().last_script_parsed_ts = value
-
-    @property
-    def last_pause_ts(self) -> Optional[str]:
-        return self._current_session().last_pause_ts
-
-    @last_pause_ts.setter
-    def last_pause_ts(self, value: Optional[str]) -> None:
-        self._current_session().last_pause_ts = value
-
-    @property
-    def execution_context_state(self) -> str:
-        return self._current_session().execution_context_state
-
-    @execution_context_state.setter
-    def execution_context_state(self, value: str) -> None:
-        self._current_session().execution_context_state = value
-
-    @property
-    def probe_installed(self) -> bool:
-        return self._current_session().probe_installed
-
-    @probe_installed.setter
-    def probe_installed(self, value: bool) -> None:
-        self._current_session().probe_installed = value
-
-    @property
-    def probe_install_error(self) -> Optional[str]:
-        return self._current_session().probe_install_error
-
-    @probe_install_error.setter
-    def probe_install_error(self, value: Optional[str]) -> None:
-        self._current_session().probe_install_error = value
 
     # ---------- disconnect diagnostics ----------
 
@@ -590,10 +445,6 @@ class AttachDaemon(
         for state in list(self.waiting_clients.values()):
             state.timer_task.cancel()
         self.waiting_clients.clear()
-        for idle_state in list(self.waiting_idle_clients.values()):
-            idle_state.idle_timer_task.cancel()
-            idle_state.hard_deadline_task.cancel()
-        self.waiting_idle_clients.clear()
         for blocking in list(self.blocking_console_clients.values()):
             if blocking.deadline_task is not None:
                 blocking.deadline_task.cancel()
@@ -666,6 +517,6 @@ class AttachDaemon(
             self.probe_install_error = kind if isinstance(kind, str) else "unknown probe result"
 
 
-async def run_attach(host: str, port: int, target_id: str, verbose: bool) -> int:
-    daemon = AttachDaemon(host=host, port=port, target_id=target_id, verbose=verbose)
+async def run_attach(host: str, port: int, target_id: str) -> int:
+    daemon = AttachDaemon(host=host, port=port, target_id=target_id)
     return await daemon.run()

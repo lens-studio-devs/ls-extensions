@@ -21,13 +21,10 @@ from .json_io import Envelope, emit_stdout, fail
 from .send import _emit_cleanup_already_gone, run_send
 from .session_metadata import is_process_alive, ping_session, read_metadata
 
+DEFAULT_HOST = "localhost"
+DEFAULT_PORT = 9222
+
 # ---------- argparse setup ----------
-
-
-def _add_global_flags(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--port", type=int, default=9222, help="debug server port (default: 9222)")
-    parser.add_argument("--host", type=str, default="localhost", help="debug server host (default: localhost)")
-    parser.add_argument("--verbose", action="store_true", help="Print low-level debugger traffic to stderr")
 
 
 def _add_wait_flags(parser: argparse.ArgumentParser) -> None:
@@ -43,29 +40,12 @@ def _add_wait_flags(parser: argparse.ArgumentParser) -> None:
         ),
     )
     parser.add_argument(
-        "--wait-idle",
-        dest="wait_idle",
-        type=str,
-        default=None,
-        metavar="DURATION",
-        help=(
-            "Block until no debug events arrive for the window (e.g. 500ms, 2s). "
-            "Use when you want to wait for the VM to settle after `reload` or "
-            "an interaction — neither pattern nor count is known. Composes "
-            "with --wait-paused: whichever fires first wins. --timeout is the "
-            "absolute ceiling (default 30s). The envelope appends "
-            "{events_observed, idle_ms_achieved, waited_ms, stop_reason} after "
-            "the verb's own result (stop_reason: 'idle' = window cleared, "
-            "'hard_timeout' = --timeout fired first on a VM that never settled)."
-        ),
-    )
-    parser.add_argument(
         "--timeout",
         dest="wait_timeout",
         type=str,
         default=None,
         metavar="DURATION",
-        help="Timeout for --wait-paused / --wait-idle (e.g. 5s, 500ms, 2m). Default: 30s.",
+        help="Timeout for --wait-paused (e.g. 5s, 500ms, 2m). Default: 30s.",
     )
 
 
@@ -141,6 +121,8 @@ _NO_FIELD_SHORTHANDS: frozenset[str] = frozenset(
         "reload",
         "backtrace",
         "cleanup",
+        "profile-start",
+        "profile-stop",
     }
 )
 
@@ -160,10 +142,9 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Debug a running JavaScript lens.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    # `--host` / `--port` / `--verbose` are top-level globals: they configure
-    # the daemon connection, not the verb. Must appear before the verb on the
-    # command line (e.g. `lsdbg --host X eval "1+1"`).
-    _add_global_flags(parser)
+    # host/port are no longer user-configurable; downstream code still reads
+    # args.host/args.port (and uses them to namespace the session files).
+    parser.set_defaults(host=DEFAULT_HOST, port=DEFAULT_PORT)
     sub = parser.add_subparsers(dest="command", metavar="<command>")
     sub.required = False  # we print help if missing
 
@@ -225,16 +206,6 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
         epilog=help_text.HEALTH_EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    p.add_argument(
-        "--raw",
-        action="store_true",
-        dest="raw_blob",
-        help=(
-            "Include structurally-null preview fields (playing:'unknown', "
-            "last_frame_ts:null, frame_age_ms:null, probe_error:'unsupported'). "
-            "Default omits them — result.state carries the actionable answer."
-        ),
     )
 
     # ----- shorthand commands -----
@@ -323,6 +294,23 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("state", type=str, choices=["none", "uncaught", "all"])
     _add_trigger_flags(p)
+
+    # CPU sampling profiler: start/stop take --target only (they never pause).
+    p = sub.add_parser(
+        "profile-start",
+        help=verbs.description_for("profile-start"),
+        epilog=help_text.PROFILE_START_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    _add_target_flag(p)
+
+    p = sub.add_parser(
+        "profile-stop",
+        help=verbs.description_for("profile-stop"),
+        epilog=help_text.PROFILE_STOP_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    _add_target_flag(p)
 
     p = sub.add_parser(
         "locals",
@@ -433,7 +421,7 @@ def main(argv: list[str] | None = None) -> int:
     if cmd == "health":
         # Skip _run_shorthand: ensure_session() would auto-spawn a daemon
         # and defeat the diagnostic purpose.
-        return run_health(args.host, args.port, raw=getattr(args, "raw_blob", False))
+        return run_health(args.host, args.port)
 
     if cmd == "cleanup":
         if getattr(args, "force", False):
@@ -468,7 +456,7 @@ def _do_attach(args: argparse.Namespace) -> int:
         return 1
 
     if os.environ.get("LSDBG_INTERNAL_FOREGROUND") == "1":
-        return asyncio.run(run_attach(args.host, args.port, resolved.target_id, args.verbose))
+        return asyncio.run(run_attach(args.host, args.port, resolved.target_id))
 
     timeout_ms: int | None = None
     if args.wait_timeout is not None:
@@ -480,7 +468,6 @@ def _do_attach(args: argparse.Namespace) -> int:
         host=args.host,
         port=args.port,
         target_id=resolved.target_id,
-        verbose=args.verbose,
         timeout_ms=timeout_ms,
     )
     if not ok:
@@ -498,7 +485,7 @@ def _run_shorthand(cmd: str, args: argparse.Namespace) -> int:
     if payload is None:
         return 1
 
-    session = ensure_session(args.host, args.port, args.verbose, target=getattr(args, "target", None))
+    session = ensure_session(args.host, args.port, target=getattr(args, "target", None))
     if not session.ok:
         fail(session.error)
         return 1
@@ -541,17 +528,6 @@ def _build_shorthand_payload(cmd: str, args: argparse.Namespace) -> dict[str, An
     # attrs, so no waitFor keys leak onto the wire for them.
     if getattr(args, "wait_paused", False):
         payload["waitFor"] = "Debugger.paused"
-    wait_idle = getattr(args, "wait_idle", None)
-    if wait_idle is not None:
-        try:
-            seconds = parse_duration_seconds(wait_idle)
-        except FilterParseError as e:
-            fail(f"--wait-idle: {e}")
-            return None
-        if seconds is None or seconds <= 0:
-            fail("--wait-idle: duration must be positive (e.g. 500ms, 2s)")
-            return None
-        payload["waitForIdleMs"] = int(seconds * 1000)
     if getattr(args, "wait_timeout", None) is not None:
         wait_timeout_ms = _parse_duration_ms_or_fail("--timeout", args.wait_timeout)
         if wait_timeout_ms is None:

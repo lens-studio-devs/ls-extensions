@@ -4,10 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional
-
-Category = Literal["session", "cdp", "pseudo", "console"]
-
+from typing import Any, Optional
 
 # The four flags a *trigger* verb accepts via cli._add_trigger_flags.
 # Kept here (not just in cli.py) so the catalog can advertise them on the
@@ -15,15 +12,14 @@ Category = Literal["session", "cdp", "pseudo", "console"]
 # by the previous "globally accepted but invisible in catalog" drift. Only
 # trigger verbs (see WAIT_TRIGGER_VERBS) take the wait flags; every other
 # dispatching verb takes `--target` only and lists it in its own `flags`.
-SHORTHAND_GLOBAL_FLAGS: tuple[str, ...] = ("--target", "--wait-paused", "--wait-idle", "--timeout")
+SHORTHAND_GLOBAL_FLAGS: tuple[str, ...] = ("--target", "--wait-paused", "--timeout")
 
 
 @dataclass(frozen=True)
 class VerbDef:
     name: str
-    category: Category
     description: str
-    cdp_method: Optional[str] = None  # only set for category == "cdp"
+    cdp_method: Optional[str] = None  # only set for verbs dispatched as a CDP method
     positional: tuple[str, ...] = field(default=())
     flags: tuple[str, ...] = field(default=())
 
@@ -32,36 +28,32 @@ VERB_CATALOG: tuple[VerbDef, ...] = (
     # ----- session: handled in cli.py, not over the socket -----
     VerbDef(
         "attach",
-        "session",
         "Start a debug session and block until the VM is live — idempotent, so it "
         "doubles as the readiness gate. Returns {attached, targetId, state}.",
         flags=("--target", "--timeout"),
     ),
-    VerbDef("list-commands", "session", "List available high-level commands", flags=("--summary",)),
+    VerbDef("list-commands", "List available high-level commands", flags=("--summary",)),
     VerbDef(
         "install-link",
-        "session",
         "Symlink $HOME/.local/bin/lsdbg → this wrapper so agents can invoke `lsdbg` bare",
     ),
     # ----- cdp: dispatched via command_dispatch.COMMAND_TABLE -----
     VerbDef(
         "eval",
-        "cdp",
         "Evaluate a JS expression (global scope while running; auto-evaluates "
         "in the top frame when paused so `this`/closures resolve — envelope "
         "carries autoFramed:true)",
         cdp_method="Runtime.evaluate",
         positional=("expression",),
     ),
-    VerbDef("pause", "cdp", "Pause execution", cdp_method="Debugger.pause"),
-    VerbDef("resume", "cdp", "Resume execution", cdp_method="Debugger.resume"),
-    VerbDef("step-over", "cdp", "Step over the current line", cdp_method="Debugger.stepOver"),
-    VerbDef("step-into", "cdp", "Step into the next call", cdp_method="Debugger.stepInto"),
-    VerbDef("step-out", "cdp", "Step out of the current function", cdp_method="Debugger.stepOut"),
-    VerbDef("reload", "cdp", "Reload the lens", cdp_method="Page.reload"),
+    VerbDef("pause", "Pause execution", cdp_method="Debugger.pause"),
+    VerbDef("resume", "Resume execution", cdp_method="Debugger.resume"),
+    VerbDef("step-over", "Step over the current line", cdp_method="Debugger.stepOver"),
+    VerbDef("step-into", "Step into the next call", cdp_method="Debugger.stepInto"),
+    VerbDef("step-out", "Step out of the current function", cdp_method="Debugger.stepOut"),
+    VerbDef("reload", "Reload the lens", cdp_method="Page.reload"),
     VerbDef(
         "set-breakpoint",
-        "cdp",
         "Set a breakpoint (partial filenames resolved)",
         cdp_method="Debugger.setBreakpointByUrl",
         positional=("url", "line"),
@@ -69,7 +61,6 @@ VERB_CATALOG: tuple[VerbDef, ...] = (
     ),
     VerbDef(
         "remove-breakpoint",
-        "cdp",
         "Remove a breakpoint",
         cdp_method="Debugger.removeBreakpoint",
         positional=("breakpointId",),
@@ -77,7 +68,6 @@ VERB_CATALOG: tuple[VerbDef, ...] = (
     ),
     VerbDef(
         "eval-on-frame",
-        "cdp",
         "Evaluate in a specific call frame (when paused)",
         cdp_method="Debugger.evaluateOnCallFrame",
         positional=("callFrameId", "expression"),
@@ -85,7 +75,6 @@ VERB_CATALOG: tuple[VerbDef, ...] = (
     ),
     VerbDef(
         "get-properties",
-        "cdp",
         "Inspect object properties",
         cdp_method="Runtime.getProperties",
         positional=("objectId",),
@@ -93,17 +82,31 @@ VERB_CATALOG: tuple[VerbDef, ...] = (
     ),
     VerbDef(
         "pause-on-exceptions",
-        "cdp",
         'Pause mode: "none" | "uncaught" | "all"',
         cdp_method="Debugger.setPauseOnExceptions",
         positional=("state",),
     ),
+    VerbDef(
+        "profile-start",
+        "Start the CPU sampling profiler — captures running-JS CPU activity "
+        "until `profile-stop`. Only sampled while the lens actually runs (an "
+        "idle/paused preview yields nothing).",
+        cdp_method="Profiler.start",
+        flags=("--target",),
+    ),
+    VerbDef(
+        "profile-stop",
+        "Stop the CPU sampling profiler and return a hot-function summary "
+        "{durationMs, sampleCount, topFunctions:[{functionName,url,line,"
+        "selfTimeMs,selfPercent,samples}]} ranked by self time.",
+        cdp_method="Profiler.stop",
+        flags=("--target",),
+    ),
     # ----- pseudo: answered server-side in the attach daemon -----
-    VerbDef("backtrace", "pseudo", "Show call stack when paused", flags=("--target",)),
-    VerbDef("locals", "pseudo", "Show local variables (when paused)", positional=("frameIndex",), flags=("--target",)),
+    VerbDef("backtrace", "Show call stack when paused", flags=("--target",)),
+    VerbDef("locals", "Show local variables (when paused)", positional=("frameIndex",), flags=("--target",)),
     VerbDef(
         "inspect-host-object",
-        "pseudo",
         (
             "Probe an expression for a stale host-object wrapper "
             "(typeof === 'object' but the underlying native is gone): "
@@ -117,22 +120,18 @@ VERB_CATALOG: tuple[VerbDef, ...] = (
     ),
     VerbDef(
         "cleanup",
-        "pseudo",
         "Reset pause-on-exceptions, remove session breakpoints, and tear down the daemon",
         flags=("--target", "--all", "--force"),
     ),
     VerbDef(
         "health",
-        "pseudo",
         "Diagnose preview/session state — returns {session, vm, "
         "activity_since_attach, preview} so agents can disambiguate an "
         "empty console-log from idle preview / init crash / wrong target",
-        flags=("--raw",),
     ),
     # ----- console: read the daemon's console-event ring buffer -----
     VerbDef(
         "console-log",
-        "console",
         (
             "Read the selected target's console output as NDJSON — one JSON "
             "object per event {seq,ts,source,level,message} (+args/stack when "
@@ -181,7 +180,7 @@ def accepts_shorthand_globals(v: VerbDef) -> bool:
 
 
 def _verb_to_dict(v: VerbDef) -> dict[str, Any]:
-    out: dict[str, Any] = {"command": v.name, "category": v.category}
+    out: dict[str, Any] = {"command": v.name}
     if v.cdp_method is not None:
         out["cdpMethod"] = v.cdp_method
     if v.positional:
@@ -197,10 +196,6 @@ def _verb_to_dict(v: VerbDef) -> dict[str, Any]:
 
 def get_verb_catalog() -> list[dict[str, Any]]:
     return [_verb_to_dict(v) for v in sorted(VERB_CATALOG, key=lambda x: x.name)]
-
-
-def verb_names() -> set[str]:
-    return {v.name for v in VERB_CATALOG}
 
 
 _DESCRIPTION_BY_NAME: dict[str, str] = {v.name: v.description for v in VERB_CATALOG}

@@ -114,7 +114,6 @@ Errors return a `{ "detail": ... }` JSON envelope (`detail` is a string, or a va
 
 | `error_message` | Cause | Recovery |
 |---|---|---|
-| `PEFT backend is required for this method` | The `high` `preview_quality`/`reconstruction_quality` tier isn't available server-side | Re-create at `balanced` — don't request `high` |
 | `Canceled while clearing the dev job queue` | Dev-queue flush canceled a queued job | Re-create once on SPECS |
 | other 5xx / infra message | Transient | Re-create once on SPECS |
 
@@ -122,7 +121,8 @@ Only after a single SPECS re-create still fails should `/build-mesh` switch that
 
 ## Timing & limits
 
-- **Polling cadence:** ~5–10 s between authorized GETs — use short `sleep`s only (long foreground sleeps are blocked by the harness), and never a background poll-loop inside `ExecuteEditorCode` (it fails strict-TS compile). The job persists server-side, so each GET is an independent read. To poll several jobs in one `ExecuteEditorCode` call, type the response as `any` (as `text-to-3d-request.ts` does) — a bare `response.statusCode` on the editor's `unknown` type fails `TS2339`.
-- **Bounded wait:** `/build-mesh` does NOT poll indefinitely — it caps the wait (~10 polls / ~3 min per job once `overall_percent` stops advancing) and returns `status: SPECS_TIMEOUT`; any backend switch after a timeout is announced, never silent. A job stuck `queued`/0% or pinned at a fixed percent is server backlog, not progress. See the SKILL.md SPECS pipeline's poll-stall rule.
+- **First poll delay:** wait ~30 s after the create before the first GET — asset generation reliably takes at least 30 s, so earlier polls just waste turns.
+- **Polling cadence:** ~5 s between authorized GETs — use short `sleep`s only (long foreground sleeps are blocked by the harness), and never a background poll-loop inside `ExecuteEditorCode` (it fails strict-TS compile). The job persists server-side, so each GET is an independent read. To poll several jobs in one `ExecuteEditorCode` call, type the response as `any` (as `text-to-3d-request.ts` does) — a bare `response.statusCode` on the editor's `unknown` type fails `TS2339`.
+- **Bounded wait:** `/build-mesh` polls up to **~5 min per job**, not indefinitely. Under high load SPECS queues requests, so a job stuck at `queued`/0% or pinned at a fixed percent is expected backlog, not a failure — keep waiting to the ceiling. At ~5 min without `succeeded`, `/build-mesh` does NOT auto-time-out: it **asks the user whether to keep waiting**. Continue → poll another ~5 min; stop → `status: SPECS_TIMEOUT`, and any backend switch after that is announced, never silent. See the SKILL.md SPECS pipeline's poll rule.
 - **Generation time:** tens of seconds, longer at higher quality; no published SLA.
 - **No streaming:** the API is request/response only — there is no event stream to subscribe to; poll the GET.

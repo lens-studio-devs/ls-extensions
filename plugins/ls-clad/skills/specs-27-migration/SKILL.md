@@ -311,7 +311,7 @@ searches in parallel and record every file + line that matches.
 
 **Scope: skip matches inside `.lspkg/` directories.** Anything under
 `Assets/<Package>.lspkg/` is package-internal code maintained by the package author and
-already handled by the package update in Step 2. Hits there are not lens-level
+already handled by the package update in Step 2. Hits there are not Lens-level
 dependencies and do not need user-facing fixes. Concretely, exclude `.lspkg/` from every
 grep, e.g.:
 

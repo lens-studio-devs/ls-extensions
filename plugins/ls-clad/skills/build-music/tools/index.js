@@ -9,6 +9,7 @@ const pattern = require('./pattern');
 const arrangement = require('./arrangement');
 const renderer = require('./renderer');
 const harmony = require('./harmony');
+const rhythm = require('./rhythm');
 
 module.exports = {
     ...engine,
@@ -16,6 +17,7 @@ module.exports = {
     arrangement,
     renderer,
     harmony,
+    rhythm,
     // Convenience re-exports of common music-pipeline entry points.
     // NOTE: `repeat` MUST be the pattern.js (events-array) version, not the
     // build-sfx audio_primitives sample-buffer version that `...engine` spreads
@@ -34,4 +36,8 @@ module.exports = {
     composeArpeggio: harmony.composeArpeggio,
     composeMelody: harmony.composeMelody,
     chordEvents: harmony.chordEvents,
+    suggestTempo: harmony.suggestTempo,
+    composeDrums: rhythm.composeDrums,
+    composeBass: rhythm.composeBass,
+    DRUM_MAP: rhythm.DRUM_MAP,
 };

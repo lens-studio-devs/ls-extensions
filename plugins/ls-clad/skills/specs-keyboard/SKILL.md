@@ -11,7 +11,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # Keyboard — AR Text Input
 
-**Requirements:** Lens Studio v5.7+, Spectacles OS v5.060+
+**Requirements:** Lens Studio v5.7+, Snap OS v5.060+
 
 > The AR Keyboard does **not** appear in Lens Studio Preview with SPECS 27 simulation. Switch to simulation mode without SPECS 27 render to test.
 

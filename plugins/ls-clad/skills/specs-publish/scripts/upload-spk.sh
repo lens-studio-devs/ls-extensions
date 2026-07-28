@@ -22,10 +22,10 @@ if [ -z "${UPLOAD_HEADERS_JSON:-}" ]; then
 fi
 SPK_CHECKSUM="${SPK_CHECKSUM:-}"
 
-[ -n "$SPK_PATH" ] || { echo "ERROR: SPK_PATH is required"; exit 1; }
-[ -f "$SPK_PATH" ] || { echo "ERROR: SPK not found: $SPK_PATH"; exit 1; }
-[ -n "$UPLOAD_URL" ] || { echo "ERROR: UPLOAD_URL is required"; exit 1; }
-command -v curl >/dev/null 2>&1 || { echo "ERROR: curl is required for SPK upload"; exit 1; }
+[ -n "$SPK_PATH" ] || { echo "ERROR: SnapOS Package path is missing"; exit 1; }
+[ -f "$SPK_PATH" ] || { echo "ERROR: SnapOS Package file not found: $SPK_PATH"; exit 1; }
+[ -n "$UPLOAD_URL" ] || { echo "ERROR: SnapOS Package upload destination is missing"; exit 1; }
+command -v curl >/dev/null 2>&1 || { echo "ERROR: curl is required to upload the SnapOS Package"; exit 1; }
 
 HEADERS_FILE="$(mktemp "${TMPDIR:-/tmp}/publish-upload-headers.XXXXXX")"
 BODY_FILE="$(mktemp "${TMPDIR:-/tmp}/publish-upload-body.XXXXXX")"
@@ -39,10 +39,10 @@ headers_json, checksum = sys.argv[1:3]
 try:
     headers = json.loads(headers_json) if headers_json.strip() else {}
 except json.JSONDecodeError as exc:
-    print(f"ERROR: UPLOAD_HEADERS_JSON is not valid JSON: {exc}", file=sys.stderr)
+    print(f"ERROR: SnapOS Package upload configuration is not valid JSON: {exc}", file=sys.stderr)
     raise SystemExit(1)
 if not isinstance(headers, dict):
-    print("ERROR: UPLOAD_HEADERS_JSON must be a JSON object", file=sys.stderr)
+    print("ERROR: SnapOS Package upload configuration must be a JSON object", file=sys.stderr)
     raise SystemExit(1)
 headers = {str(key): str(value) for key, value in headers.items()}
 if checksum and not any(key.lower() == "x-amz-checksum-sha256" for key in headers):
@@ -51,7 +51,7 @@ if checksum and not any(key.lower() == "x-amz-checksum-sha256" for key in header
 for key, value in headers.items():
     header = f"{key}: {value}"
     if "\n" in header or "\r" in header:
-        print("ERROR: upload headers must not contain newlines", file=sys.stderr)
+        print("ERROR: SnapOS Package upload configuration must not contain newlines", file=sys.stderr)
         raise SystemExit(1)
     print(header)
 HEADERS_PY
@@ -79,7 +79,7 @@ while IFS= read -r header; do
 done < "$HEADERS_FILE"
 
 if ! HTTP_STATUS="$(curl "${curl_args[@]}" "$UPLOAD_URL")"; then
-  echo "ERROR: upload failed" >&2
+  echo "ERROR: SnapOS Package upload failed" >&2
   if [ -s "$BODY_FILE" ]; then
     head -c 1000 "$BODY_FILE" >&2
     echo >&2
@@ -92,7 +92,7 @@ case "$HTTP_STATUS" in
     printf '{"status":"UPLOAD_DONE","stage":"upload","httpStatus":%s}\n' "$HTTP_STATUS"
     ;;
   *)
-    echo "ERROR: upload returned HTTP $HTTP_STATUS: $(head -c 1000 "$BODY_FILE")" >&2
+    echo "ERROR: SnapOS Package upload returned HTTP $HTTP_STATUS: $(head -c 1000 "$BODY_FILE")" >&2
     exit 1
     ;;
 esac

@@ -50,11 +50,14 @@ function render(tracks, renderOpts = {}) {
     // Pre-pass: humanize events per track
     const tracksReady = tracks.map((tr, idx) => {
         const seed = tr.opts.seed !== undefined ? tr.opts.seed : 11 + idx * 7;
-        const evCopy = tr.events.map(e => Object.assign({ time: e.time, beats: e.beats, value: e.value, velocity: e.velocity }));
+        // Keep `beat` (beat-space position) alongside `time` — humanizeEvents needs it
+        // for swing/groove classification, which is meaningless once time is in seconds.
+        const evCopy = tr.events.map(e => Object.assign({ time: e.time, beat: e.time, beats: e.beats, value: e.value, velocity: e.velocity }));
         // Translate beat-time to seconds-time
         for (const e of evCopy) e.time = e.time * 60 / bpm;
         if (tr.opts.quantize !== 'strict') {
-            humanizeEvents(evCopy, Object.assign({ rng: humanize.mulberry32(seed) }, defaultHumanize, tr.opts.humanize || {}));
+            // Pass bpm so swing offsets land in real seconds at the actual tempo.
+            humanizeEvents(evCopy, Object.assign({ rng: humanize.mulberry32(seed), bpm }, defaultHumanize, tr.opts.humanize || {}));
         }
         // Resolve voice
         const voiceFn = typeof tr.voice === 'function'

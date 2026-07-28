@@ -50,6 +50,32 @@ export class MyComponent extends BaseScriptComponent {
 }
 ```
 
+## Input widgets
+
+`@widget(...)` changes how an `@input` is drawn in the Inspector. Each widget supports specific property types — match the type or the widget is ignored. Widget classes are globals (no import), same as the `@ui.*` decorators. **Pick the widget that fits the value** — a bare `@input` falls back to a raw editor (e.g. a color shows four number boxes, not a picker), which is the most common "why is this ugly" bug.
+
+| Widget | Property types | Effect |
+|---|---|---|
+| `new ColorWidget()` | `vec3` (RGB), `vec4` (RGBA) | Color picker / swatch instead of raw number boxes |
+| `new SliderWidget(min, max, step)` | `int`, `float` | Slider with bounds |
+| `new SpinBoxWidget(min, max, step)` | `int`, `float` | Number box with min/max/step (default numeric widget) |
+| `new ComboBoxWidget([new ComboBoxItem(label, value), …])` | `int`, `string` | Dropdown of discrete choices — use for enum-like picks (mark style, theme preset, difficulty) |
+| `new TextAreaWidget()` | `string` | Multi-line text field |
+
+Color inputs use the `@input('<type>', '<default>')` type+default form:
+
+```typescript
+@input('vec3', '{1,0,0}')
+@widget(new ColorWidget())
+xMarkColor: vec3
+
+@input('vec4', '{1,1,1,1}')
+@widget(new ColorWidget())
+winLineColor: vec4
+```
+
+`@showIf('otherField', value)` conditionally shows a field based on another input. Full catalog: Lens Studio [Custom Script UI docs](https://developers.snap.com/lens-studio/features/scripting/custom-script-ui).
+
 ## Import order
 
 Three tiers, in this order:

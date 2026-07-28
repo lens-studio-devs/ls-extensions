@@ -203,10 +203,16 @@ function parseRoman(numeral) {
  */
 function buildProgression(key, scaleName, progression) {
     const keyMidi = typeof key === 'string' ? noteToMidi(key) : key;
-    const scalePattern = SCALES[scaleName] || SCALES.major;
-    const degreeQualities = scaleName === 'minor' || scaleName === 'harmonicMinor' || scaleName === 'melodicMinor'
-        ? MINOR_DEGREE_QUALITIES
-        : MAJOR_DEGREE_QUALITIES;
+    const isMinorFamily = scaleName === 'minor' || scaleName === 'harmonicMinor' || scaleName === 'melodicMinor';
+    const degreeQualities = isMinorFamily ? MINOR_DEGREE_QUALITIES : MAJOR_DEGREE_QUALITIES;
+    // Chord ROOTS for any minor-family scale come from NATURAL minor, so 'VII'
+    // lands on ♭VII and 'III' on ♭III (the idiomatic minor-key chords). Harmonic
+    // minor's raised 7th only needs to appear inside a major-written 'V': a major
+    // triad on the ♭VII... no — on scale degree 5 (offset 7), the major third is
+    // the raised leading tone automatically, so V written uppercase is correct
+    // without rooting other chords on the raised 7th (which gave a jarring B-major
+    // "VII" in C minor for the cinematic/dark pools).
+    const rootPattern = isMinorFamily ? SCALES.minor : (SCALES[scaleName] || SCALES.major);
 
     const numerals = Array.isArray(progression)
         ? progression
@@ -215,7 +221,7 @@ function buildProgression(key, scaleName, progression) {
 
     return numerals.map(numeral => {
         const { degree, isMinor, modifier } = parseRoman(numeral);
-        const rootOffset = scalePattern[degree] || 0;
+        const rootOffset = rootPattern[degree] || 0;
         const root = keyMidi + rootOffset;
 
         let type;

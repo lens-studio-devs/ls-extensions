@@ -41,7 +41,7 @@ Invoke the LEAF scenario-list capability with no arguments. It returns an array 
 
 If this call returns `"LEAF panel is not open"`, Step 2 didn't fully wire up the panel — re-check that the panel-open call succeeded.
 
-If the call succeeds but the list is empty, the lens-side scenario registration hasn't completed yet. Wait a moment and retry once. If it stays empty, invoke the panel-open capability again — it is idempotent and re-creates the panel.
+If the call succeeds but the list is empty, the Lens-side scenario registration hasn't completed yet. Wait a moment and retry once. If it stays empty, invoke the panel-open capability again — it is idempotent and re-creates the panel.
 
 ## Step 4: Run scenarios
 
@@ -68,11 +68,11 @@ To run multiple scenarios, issue scenario-run calls **serially** — wait for ea
 
 Run this step whenever a scenario-run call did NOT return a clean "succeeded" status. That covers an explicit failure (returned "failed" status) and an MCP-call timeout (no status returned; do NOT assume silent success).
 
-The scenario-run capability does not include an error message on a failure, and an MCP-call timeout returns no status at all. Bumping the log level to DEBUG adds detail to the Lens Studio log but does not change the return value. To see what actually happened, you must read the Lens Studio log directly. Only the lens-side scenario manager's pass / fail lines are authoritative — UI-side success logs from the LeafPlugin can lag, mis-match, or fire for scenarios that were actually aborted, so never cite them as evidence of a pass when the scenario-run call itself timed out. Procedure:
+The scenario-run capability does not include an error message on a failure, and an MCP-call timeout returns no status at all. Bumping the log level to DEBUG adds detail to the Lens Studio log but does not change the return value. To see what actually happened, you must read the Lens Studio log directly. Only the Lens-side scenario manager's pass / fail lines are authoritative — UI-side success logs from the LeafPlugin can lag, mis-match, or fire for scenarios that were actually aborted, so never cite them as evidence of a pass when the scenario-run call itself timed out. Procedure:
 
 1. **Set a log baseline.** Invoke the log-baseline / preview-reset capability with no arguments. It returns `{logFile, byteOffset}`. Hold onto both values — `logFile` is the absolute path to the active Lens Studio log file, and `byteOffset` marks the end of the log at this moment, so anything read from this offset onward will be output produced by the next scenario run.
 2. **Re-run the failing scenario with `__leaf__log_level: "DEBUG"`** to maximize the detail emitted into the log.
-3. **Read the log slice starting at the baseline offset** and search it (case-insensitive) for entries mentioning the scenario id, the words FAILED / PASSED / RUNS, and reset-related keywords. The lens-side scenario manager is the source of truth; its pass / fail entries describe the actual outcome, while the LeafPlugin UI logger emits informational success / failure lines that can lag or fire incorrectly when a scenario is aborted. Look for one of three patterns:
+3. **Read the log slice starting at the baseline offset** and search it (case-insensitive) for entries mentioning the scenario id, the words FAILED / PASSED / RUNS, and reset-related keywords. The Lens-side scenario manager is the source of truth; its pass / fail entries describe the actual outcome, while the LeafPlugin UI logger emits informational success / failure lines that can lag or fire incorrectly when a scenario is aborted. Look for one of three patterns:
    - **Explicit failure:** a scenario-manager FAILED entry for the id, followed by a matching "completed with failure" entry from the message handler. The error reason on the FAILED line is the verbatim cause.
    - **Aborted by scene reset:** a scenario-manager RUNS entry for the id, followed by context-reset / lens-reset entries and a fresh batch of scenario re-registrations — and no matching PASSED or FAILED entry for that id. That's the parallel-dispatch pitfall from Step 4; the scenario didn't fail on its own merits, it was killed mid-run.
    - **Genuine hang:** a scenario-manager RUNS entry for the id with no subsequent PASSED or FAILED entry and no scene reset in between. The scenario is stuck on an await — usually an interactor or a sleep that never resolves.

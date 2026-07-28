@@ -241,7 +241,7 @@ Depth has bitten every integration in this skill at the *setup* layer, not the c
 1. **Device only.** Lens Studio Preview never streams depth — `onNewFrame` simply won't fire in Preview. Test on Specs.
 2. **Experimental API must be SAVED, not just checked.** Toggling Project Settings → "Allow Experimental API" is not enough — the project must be **saved** so the `.esproj` `lensDescriptors` list actually contains `EXPERIMENTAL_API`. An unsaved checkbox builds a Lens with no depth and `onNewFrame` never fires. Verify with: `grep -A3 lensDescriptors *.esproj`.
 3. **Accept the on-device camera prompt.** Depth needs the camera frame (which disables open internet for the Lens — use Extended Permissions if you also need network).
-4. **Use a delivery probe, not load logs.** Frames arrive ~5 Hz *after* startup. A one-shot probe distinguishes "platform isn't delivering depth" from a lens-side bug far faster than scrolling logs (see the `DelayedCallbackEvent` 5 s probe in `DepthTextureHandler.ts`):
+4. **Use a delivery probe, not load logs.** Frames arrive ~5 Hz *after* startup. A one-shot probe distinguishes "platform isn't delivering depth" from a Lens-side bug far faster than scrolling logs (see the `DelayedCallbackEvent` 5 s probe in `DepthTextureHandler.ts`):
 
    ```typescript
    let frames = 0

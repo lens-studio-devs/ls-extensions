@@ -14,7 +14,7 @@ from .target_discovery import discover_targets
 HEALTH_DISCOVERY_TIMEOUT_S = 2.0
 
 
-def run_health(host: str, port: int, raw: bool = False) -> int:
+def run_health(host: str, port: int) -> int:
     meta = read_metadata(host, port)
     daemon_live = meta is not None and is_process_alive(meta.pid) and ping_session(meta.socketPath)
     if not daemon_live:
@@ -31,8 +31,4 @@ def run_health(host: str, port: int, raw: bool = False) -> int:
         emit_stdout(Envelope.success({"status": "no_session"}))
         return 0
 
-    # `raw=true` tells the daemon-side handler to keep structurally-null
-    # preview fields (`playing:"unknown"`, `last_frame_ts:null`, etc.). Default
-    # is pruned — result.state is what an agent actually branches on.
-    payload = '{"command":"health","id":1,"raw":true}' if raw else '{"command":"health","id":1}'
-    return run_send(host, port, payload, shorthand=True)
+    return run_send(host, port, '{"command":"health","id":1}', shorthand=True)

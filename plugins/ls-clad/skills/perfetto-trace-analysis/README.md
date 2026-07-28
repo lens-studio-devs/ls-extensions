@@ -9,7 +9,7 @@ A skill for analyzing Lens Studio `.pftrace` performance traces and produces act
 
 ## What problem does it solve?
 
-When developing a Lens, you can profile it on a phone or Spectacles and it produces a `.pftrace` file — a binary recording of everything the device CPU was doing, with nanosecond-precision timestamps and named spans for every operation. These files are large, binary, and not human-readable. This skill analyzes a trace and explains *why the Lens is slow*: which operations are expensive, on which thread, how often they occur, and whether the problem is a consistent bottleneck or occasional spikes.
+When developing a Lens, you can profile it on a phone or Specs and it produces a `.pftrace` file — a binary recording of everything the device CPU was doing, with nanosecond-precision timestamps and named spans for every operation. These files are large, binary, and not human-readable. This skill analyzes a trace and explains *why the Lens is slow*: which operations are expensive, on which thread, how often they occur, and whether the problem is a consistent bottleneck or occasional spikes.
 
 The two-phase design separates concerns cleanly: Phase 1 handles **Automated Anomaly Detection** (frame budget violations, shader compilation clustering, activation-time hitches, thread hotspots) and **Automated Root Cause Analysis** (confidence-ranked candidates with fix suggestions); Phase 2 provides deep SQL drilling for cases that need call-hierarchy or scheduling data to confirm a root cause.
 
