@@ -1,30 +1,8 @@
-Copyright (c) 2026 Specs Inc. All Rights Reserved.
+Copyright 2026 Specs Inc.
 
-—
+Except as otherwise noted, the software, documentation, and other materials in this repository are licensed under the Apache License, Version 2.0, reproduced below.
 
-Snap Developer Terms:
-
-Access to or use of Lens Studio APIs, and other developer products and services made available to you by Snap Inc. and its affiliates (“Snap”), is subject to the Snap Developer Terms, which can be found at:
-
-https://snap.com/en-US/terms/developer
-
-If you do not agree to these terms, do not use or otherwise access Snap developer products.
-
-—
-
-Lens Studio License Agreement:
-
-Access to or use of Lens Studio and its associated documentation, software code, and other materials (collectively, “Lens Studio”), made available by Snap Inc. and its affiliates ("Snap"), is subject to the Lens Studio License Agreement, which can be found at:
-
-https://snap.com/en-US/terms/lens-studio-license-agreement
-
-If you do not agree to these terms, do not use or otherwise access Lens Studio.
-
-—
-
-License for ls-extensions:
-
-The example code in this repository is made available under the Apache License, Version 2.0 as reproduced below.
+Use of Lens Studio, Lens Studio APIs, and other Snap products and services remains subject to the applicable Snap terms. Those terms do not modify the Apache License applicable to the contents of this repository.
 
 
                                  Apache License
