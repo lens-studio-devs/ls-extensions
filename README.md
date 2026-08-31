@@ -17,7 +17,7 @@ For more CLAD documentation, see [developers.specs.com/docs/clad](https://develo
 **Marketplace:**
 
 ```
-/plugin marketplace add https://github.com/lens-studio-devs/ls-extensions.git
+/plugin marketplace add lens-studio-devs/ls-extensions
 /plugin install ls-clad@ls-extensions
 ```
 
