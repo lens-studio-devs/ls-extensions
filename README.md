@@ -38,7 +38,7 @@ Codex installs are marketplace-based. You can add this repository directly from 
 **Add from git:**
 
 ```sh
-codex plugin marketplace add https://github.com/lens-studio-devs/ls-extensions.git
+codex plugin marketplace add lens-studio-devs/ls-extensions
 ```
 
 **Add from a local clone:**
