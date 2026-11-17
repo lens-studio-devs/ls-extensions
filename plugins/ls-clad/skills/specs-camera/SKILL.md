@@ -14,7 +14,7 @@ SPDX-License-Identifier: Apache-2.0
 **Requirements:** Lens Studio v5.x+. `CameraModule` is a regular
 sensitive-sensor API (not Experimental) — combining it with internet
 connectivity triggers Transparent Permission, but the Lens is still
-publishable. Still image requests (`requestImage`) are device-only; the
+publishable. Still capture (`createCaptureSession`) is device-only; the
 continuous camera stream and crop pipelines also run in the editor with
 `Default_Color`.
 
@@ -22,8 +22,8 @@ continuous camera stream and crop pipelines also run in the editor with
 > combination triggers **Transparent Permission**: the user sees an
 > explicit permission prompt at launch and the device LED blinks while the
 > camera is in use. Users with Extended Permissions enabled skip the
-> prompt. See [docs/transparent-permission.mdx](resources/docs/transparent-permission.mdx)
-> and [docs/permissions-and-privacy.mdx](resources/docs/permissions-and-privacy.mdx).
+> prompt. See [docs/transparent-permission.mdx](references/docs/transparent-permission.mdx)
+> and [docs/permissions-and-privacy.mdx](references/docs/permissions-and-privacy.mdx).
 
 ---
 
@@ -31,16 +31,16 @@ continuous camera stream and crop pipelines also run in the editor with
 
 | Goal | Start here |
 | --- | --- |
-| Show the live camera feed on a panel in front of the user | [scripts/CameraFrameStream.ts](resources/scripts/CameraFrameStream.ts) + [scene-setup/basic-camera-panel.md](resources/scene-setup/basic-camera-panel.md) |
-| Live viewfinder + freeze-frame capture + aspect-ratio crop (editor-friendly) | [scripts/CameraSetup.ts](resources/scripts/CameraSetup.ts) + [scene-setup/camera-panel-with-capture-and-ratio.md](resources/scene-setup/camera-panel-with-capture-and-ratio.md) |
-| Take a high-resolution still photo (device only) | [scripts/StillImageCapture.ts](resources/scripts/StillImageCapture.ts) |
-| Read camera intrinsics, project/unproject 3D↔2D | [scripts/CameraIntrinsics.ts](resources/scripts/CameraIntrinsics.ts) |
-| Crop the camera feed to a region of interest (picture-in-picture, zoom) | [scripts/CropCameraTexture.ts](resources/scripts/CropCameraTexture.ts) + [scene-setup/crop-camera-texture.md](resources/scene-setup/crop-camera-texture.md) |
-| Share one camera request across many consumers (UI + ML + encoder) | [scripts/CompositeCameraService.ts](resources/scripts/CompositeCameraService.ts) + [scene-setup/composite-camera-texture.md](resources/scene-setup/composite-camera-texture.md) |
-| Bake virtual scene content into the captured image ("augmented capture", infinite-mirror) | [scripts/CameraCompositeRenderService.ts](resources/scripts/CameraCompositeRenderService.ts) + [scene-setup/composite-render-target-passthrough.md](resources/scene-setup/composite-render-target-passthrough.md) |
-| Full official API reference | [docs/camera-module.mdx](resources/docs/camera-module.mdx) |
-| Permission rules + which combinations need Transparent Permission | [docs/permissions-and-privacy.mdx](resources/docs/permissions-and-privacy.mdx), [docs/transparent-permission.mdx](resources/docs/transparent-permission.mdx) |
-| Experimental API flag + watermark behavior | [docs/experimental-apis.mdx](resources/docs/experimental-apis.mdx) |
+| Show the live camera feed on a panel in front of the user | [scripts/CameraFrameStream.ts](references/scripts/CameraFrameStream.ts) + [scene-setup/basic-camera-panel.md](references/scene-setup/basic-camera-panel.md) |
+| Live viewfinder + freeze-frame capture + aspect-ratio crop (editor-friendly) | [scripts/CameraSetup.ts](references/scripts/CameraSetup.ts) + [scene-setup/camera-panel-with-capture-and-ratio.md](references/scene-setup/camera-panel-with-capture-and-ratio.md) |
+| Take a high-resolution still photo (device only) | [scripts/StillImageCapture.ts](references/scripts/StillImageCapture.ts) |
+| Read camera intrinsics, project/unproject 3D↔2D | [scripts/CameraIntrinsics.ts](references/scripts/CameraIntrinsics.ts) |
+| Crop the camera feed to a region of interest (picture-in-picture, zoom) | [scripts/CropCameraTexture.ts](references/scripts/CropCameraTexture.ts) + [scene-setup/crop-camera-texture.md](references/scene-setup/crop-camera-texture.md) |
+| Share one camera request across many consumers (UI + ML + encoder) | [scripts/CompositeCameraService.ts](references/scripts/CompositeCameraService.ts) + [scene-setup/composite-camera-texture.md](references/scene-setup/composite-camera-texture.md) |
+| Bake virtual scene content into the captured image ("augmented capture", infinite-mirror) | [scripts/CameraCompositeRenderService.ts](references/scripts/CameraCompositeRenderService.ts) + [scene-setup/composite-render-target-passthrough.md](references/scene-setup/composite-render-target-passthrough.md) |
+| Full official API reference | [docs/camera-module.mdx](references/docs/camera-module.mdx) |
+| Permission rules + which combinations need Transparent Permission | [docs/permissions-and-privacy.mdx](references/docs/permissions-and-privacy.mdx), [docs/transparent-permission.mdx](references/docs/transparent-permission.mdx) |
+| Experimental API flag + watermark behavior | [docs/experimental-apis.mdx](references/docs/experimental-apis.mdx) |
 
 ---
 
@@ -93,16 +93,16 @@ be tier 1. The tier-2 providers above explicitly do not.
 ### How this looks across the skill
 
 - **Tier-1-only scripts** — zero `@input`, build their own display surface:
-  [`CameraFrameStream.ts`](resources/scripts/CameraFrameStream.ts),
-  [`StillImageCapture.ts`](resources/scripts/StillImageCapture.ts),
-  [`CameraIntrinsics.ts`](resources/scripts/CameraIntrinsics.ts).
+  [`CameraFrameStream.ts`](references/scripts/CameraFrameStream.ts),
+  [`StillImageCapture.ts`](references/scripts/StillImageCapture.ts),
+  [`CameraIntrinsics.ts`](references/scripts/CameraIntrinsics.ts).
   Use these as the template when adding a new script.
 - **Scripts that genuinely need tier-2 inputs** keep them:
-  [`CropCameraTexture.ts`](resources/scripts/CropCameraTexture.ts) needs
+  [`CropCameraTexture.ts`](references/scripts/CropCameraTexture.ts) needs
   the screen crop texture;
-  [`CameraCompositeRenderService.ts`](resources/scripts/CameraCompositeRenderService.ts)
+  [`CameraCompositeRenderService.ts`](references/scripts/CameraCompositeRenderService.ts)
   needs the project Render Target;
-  [`CameraSetup.ts`](resources/scripts/CameraSetup.ts) needs the base
+  [`CameraSetup.ts`](references/scripts/CameraSetup.ts) needs the base
   `ImageMaterial` (with `ENABLE_BASE_TEX` enabled on the source).
   When adapting these, the first refactor pass is dropping **tier-1**
   inputs (`CameraModule`, camera selection, owned display Image),
@@ -121,9 +121,9 @@ be tier 1. The tier-2 providers above explicitly do not.
 
 1. **Module asset, not module SceneObject.** `CameraModule` is an *asset*
    that you reference from a script input or via
-   `require('LensStudio:CameraModule')`. It exposes
-   `createCameraRequest()`, `createImageRequest()`, `requestCamera(req)`,
-   `requestImage(req)`, `getSupportedImageResolutions()`.
+   `require('LensStudio:CameraModule')`. Live frames: `createCameraRequest()` +
+   `requestCamera(req)`. High-resolution stills: `createCaptureSession()` (below).
+   Check the installed `StudioLib.d.ts` for the rest of the surface.
 
 2. **`requestCamera()` returns a live Texture handle.** Assign the same
    handle to an `Image.mainPass.baseTex`, to an `MLComponent` input, or to a
@@ -180,13 +180,25 @@ increase power draw and thermal load.
 
 ### Still images (device only)
 
+Use a capture session on a camera stream whose `operation` is `Capture`. Start it early (the
+first capture includes pipeline warm-up), await each `capture()` before the next, and `stop()`
+it to release the camera. The older `createImageRequest()` / `requestImage()` calls do not exist
+in Lens Studio 5.25+.
+
 ```typescript
-const req = CameraModule.createImageRequest();
-req.imageSmallerDimension = 512;
-const frame: ImageFrame = await cameraModule.requestImage(req);
-const t = frame.timestampMillis;
-this.uiImage.mainPass.baseTex = frame.texture;
+const stream = cameraModule.getCameras()
+  .map((c) => c.getStreams().find((s) => s.operation === CameraModule.Operation.Capture))
+  .find((s) => s !== undefined);
+const config = new CameraModule.StreamConfig();
+config.stream = stream;
+const session = cameraModule.createCaptureSession();
+if (session.start(config) === CameraModule.Result.Success) {
+  const frame = await session.capture();
+  this.uiImage.mainPass.baseTex = frame.texture;
+}
 ```
+
+Full component: `references/scripts/StillImageCapture.ts`.
 
 ### Intrinsics + project/unproject
 
@@ -215,8 +227,8 @@ cropProvider.cropRect.top    =  0.2;
 ```
 
 Crop coordinates are normalized to `-1..1`. See
-[scripts/CropCameraTexture.ts](resources/scripts/CropCameraTexture.ts) and
-[scene-setup/crop-camera-texture.md](resources/scene-setup/crop-camera-texture.md).
+[scripts/CropCameraTexture.ts](references/scripts/CropCameraTexture.ts) and
+[scene-setup/crop-camera-texture.md](references/scene-setup/crop-camera-texture.md).
 
 ### Sending a frame to an AI model
 
@@ -302,7 +314,7 @@ If you rename an `@input` in the `.ts`, you must recompile again before re-wirin
 The three `scene-setup/*.md` recipes are extracted from real scene files
 and list the exact hierarchy, asset list, and script-input wiring needed
 for the three main patterns. They are intentionally hierarchy-only — they
-do not depend on any package outside `resources/scripts/`.
+do not depend on any package outside `references/scripts/`.
 
 ---
 
@@ -312,10 +324,10 @@ The failure modes for the "see what the camera sees" panel (world-space
 Canvas, `ScreenTransform.offsets`, Z + renderOrder, clone-per-panel,
 `ENABLE_BASE_TEX`, wait-one-`onNewFrame`, `Base64.decode`, one
 `requestCamera()` per scene, composite-needs-Render-Target, capture from
-crop, `requestImage` device-only, ratio = crop not scale, SUIK Button +
+crop, still capture device-only, ratio = crop not scale, SUIK Button +
 ElementContent) are catalogued in the "Why this layout" section of
-[scene-setup/camera-panel-with-capture-and-ratio.md](resources/scene-setup/camera-panel-with-capture-and-ratio.md)
-and encoded into [CameraSetup.ts](resources/scripts/CameraSetup.ts). Read
+[scene-setup/camera-panel-with-capture-and-ratio.md](references/scene-setup/camera-panel-with-capture-and-ratio.md)
+and encoded into [CameraSetup.ts](references/scripts/CameraSetup.ts). Read
 that recipe before improvising a different layout.
 
 ## Notes & gotchas

@@ -17,7 +17,7 @@ LEAF ships as a single package. All LEAF functionality lives in `Leaf.lspkg`, or
 
 Everything is nested under `Leaf.lspkg/<Utils|Interactors|Scenarios|IKSolver>/...`. Use `specs-leaf-install-packages` to install the package.
 
-`Leaf.lspkg` declares **SpectaclesInteractionKit** and **Bitmoji 3D** as dependencies (Bitmoji 3D powers the IK avatar). Both are pulled in automatically when LEAF is installed from the Asset Library.
+`Leaf.lspkg` declares **InteractionKit** and **Bitmoji 3D** as dependencies (Bitmoji 3D powers the IK avatar). Both are pulled in automatically when LEAF is installed from the Asset Library.
 
 ## Import Path Mapping
 
@@ -99,7 +99,7 @@ For hand-gesture interactors, subclass `LeafSingleHandInteractor` and have the s
 
 ```typescript
 import {LeafSingleHandInteractor} from "Leaf.lspkg/Interactors/interactor/handInput/LeafHandInteractor"
-import {HandType} from "SpectaclesInteractionKit.lspkg/Providers/HandInputData/HandType"
+import {HandType} from "InteractionKit.lspkg/Providers/HandInputData/HandType"
 
 export class MyGestureInteractor extends LeafSingleHandInteractor {
   constructor(handType: HandType = "right", debugMode: boolean = true) {
@@ -200,11 +200,11 @@ await interactor.hover(interactable, durationMs)
 
 | Interactor | When to use |
 |------------|-------------|
-| **`DefaultLeafInteractor`** | Fast, scripted SIK interactions. Default for functional/logic flows where you don't care *how* the user reaches the control. |
+| **`DefaultLeafInteractor`** | Fast, scripted InteractionKit interactions. Default for functional/logic flows where you don't care *how* the user reaches the control. |
 | **`LeafHandInteractor.get(hand)`** | Simulated hand — gestures (`pinch`/`palm`/…), screen-space hand placement, palm menus. Get both `LeafHandInteractor.get("left")` and `LeafHandInteractor.get("right")` for two-hand flows (concurrent gestures and **two-hand scale**). |
 | **`createIKInteractor()`** (IK) | Realistic full-arm + head reach. **Use whenever the test should also verify a real user can physically reach and operate the UI** — it catches buttons placed out of reach, occluded, or only hittable by far-field ray. |
 
-**Add at least one IK scenario** for any Lens with reach-sensitive UI (buttons, panels, sliders the user must touch). IK tests double as a reachability check; the other interactors assume the control is already reachable. See the IK Interactor section below.
+**Add at least one inverse-kinematics scenario** for any Lens with reach-sensitive UI (buttons, panels, sliders the user must touch). IK tests double as a reachability check; the other interactors assume the control is already reachable. See the IK Interactor section below.
 
 ### Finding elements
 
@@ -268,30 +268,30 @@ The two-hand target must allow it: `Interactable.allowMultipleInteractors` + `In
 
 ## IK Interactor (recommended for UI reachability)
 
-The **IK interactor** drives a full inverse-kinematics arm (shoulder → elbow → wrist → fingers) and head on a Bitmoji avatar, then triggers SIK the way a real user would. Because it physically reaches for each target, **it surfaces UI problems that scripted interactors hide** — buttons placed outside arm reach, occluded targets, or controls the user can only hit via a far-field ray. Prefer it for any scenario validating that a real user can actually reach and operate the UI.
+The **inverse-kinematics interactor** (`createIKInteractor`) drives a full inverse-kinematics arm (shoulder → elbow → wrist → fingers) and head on a Bitmoji avatar, then triggers IK the way a real user would. Because it physically reaches for each target, **it surfaces UI problems that scripted interactors hide** — buttons placed outside arm reach, occluded targets, or controls the user can only hit via a far-field ray. Prefer it for any scenario validating that a real user can actually reach and operate the UI.
 
 ```typescript
 import {createIKInteractor} from "Leaf.lspkg/Interactors/interactor/ik/visualizer/BitmojiAvatar"
 
 @component
 export class MyIKScenario extends Scenario {
-  private readonly _interactor = createIKInteractor()  // {} or omit args for the common case
-
   async run(): Promise<void> {
+    // Create it here, never in a field initializer or constructor ({} or omit args for the common case)
+    const ik = createIKInteractor()
     const button = findInteractableByName("LaunchButton")
 
     // Trigger: pinches the target with the right hand (default) and turns the head toward it.
     // Routing is physics-driven: within arm reach → direct poke; beyond reach → far-field ray.
-    await this._interactor.trigger(button)
-    await this._interactor.trigger(button, "left")  // left hand
+    await ik.trigger(button)
+    await ik.trigger(button, "left")  // left hand
 
     // Drag: vec2 delta = target's ScreenTransform anchor frame (UI panels/sliders);
     //       vec3 delta = world-space cm (3D draggables).
-    await this._interactor.drag(sliderKnob, new vec2(5, 0))     // slide along panel's local X
-    await this._interactor.drag(planet, new vec3(0, 10, 0))     // world-space
+    await ik.drag(sliderKnob, new vec2(5, 0))     // slide along panel's local X
+    await ik.drag(planet, new vec3(0, 10, 0))     // world-space
 
     // Two-handed scale: grab opposite sides and spread/pinch.
-    await this._interactor.scale(planet, vec3.left().uniformScale(4), vec3.right().uniformScale(4))
+    await ik.scale(planet, vec3.left().uniformScale(4), vec3.right().uniformScale(4))
   }
 }
 ```
@@ -310,6 +310,7 @@ If `trigger` on a supposedly-reachable button fails to converge, routes through 
 
 ### IK notes
 
+- **Create the interactor inside `run()`**, not in a field initializer or the constructor. The avatar hand rig loads asynchronously and only a call from `run()` lets LEAF await it, otherwise the scenario fails with `IK "left" hand rig has not loaded`.
 - `createIKInteractor()` returns an `IKBodyInteractor` owning a `left` and `right` `IKHandInteractor` plus a head controller. It auto-destroys on scenario cleanup.
 - Requires the **Bitmoji 3D** dependency (installed automatically with `Leaf.lspkg`).
 - A two-hand `scale` target needs `Interactable.allowMultipleInteractors` + `InteractableManipulation.canScale`.
@@ -359,11 +360,11 @@ const slider = findInteractablesByName("Slider")[0]
 await interactor.drag(slider, new vec3(10, 0, 0), 500)
 ```
 
-### Scroll to find and tap item in ScrollView
+### Scroll to find and tap item in ScrollWindow
 ```typescript
 const interactor = new DefaultLeafInteractor()
 const scrollView = getInteractables().find(
-  (i) => i.getSceneObject().name === "ScrollView",
+  (i) => i.getSceneObject().name === "ScrollWindow",
 )
 const scrollViewST = scrollView.getSceneObject().getComponent("ScreenTransform")
 
@@ -413,7 +414,7 @@ interface ScenarioConfig {
 - Add `@component` decorator
 - `await sleep(1500)` at start of `run()` if the Lens uses deferred initialization
 - Create interactor (`DefaultLeafInteractor`, `LeafHandInteractor.get(hand)`, or `createIKInteractor()`)
-- For reach-sensitive UI, add an IK scenario (`createIKInteractor`) — trigger the way a real user would; a reach that fails to converge (or routes far-field / times out) is a real reachability finding
+- For reach-sensitive UI, add an inverse-kinematics scenario (`createIKInteractor`) — trigger the way a real user would; a reach that fails to converge (or routes far-field / times out) is a real reachability finding
 - Find scene elements by name
 - Perform interactions with `await`
 - Add `sleep()` after interactions for state to settle
@@ -422,19 +423,19 @@ interface ScenarioConfig {
 
 ## Common Pitfalls
 
-- **Init timing** — many Lenses defer scene construction to a `DelayedCallbackEvent` (commonly 0.5s after `onAwake`). Interactables, UI, and scene objects won't exist until that callback fires and SIK registers them. If the Lens under test uses this pattern, add `await sleep(1500)` at the start of `run()` to ensure the Lens is fully initialized. Check the Lens's `onAwake()` for `DelayedCallbackEvent` to confirm whether this is needed.
-- **`BaseScriptComponent` is a global** — do NOT import it from SIK or any package. Use it directly in your `LeafIndex` class declaration.
+- **Init timing** — many Lenses defer scene construction to a `DelayedCallbackEvent` (commonly 0.5s after `onAwake`). Interactables, UI, and scene objects won't exist until that callback fires and InteractionKit registers them. If the Lens under test uses this pattern, add `await sleep(1500)` at the start of `run()` to ensure the Lens is fully initialized. Check the Lens's `onAwake()` for `DelayedCallbackEvent` to confirm whether this is needed.
+- **`BaseScriptComponent` is a global** — do NOT import it from InteractionKit or any package. Use it directly in your `LeafIndex` class declaration.
 - **Getting a hand** — use the shared accessor `LeafHandInteractor.get(hand)`; a custom *subclass* of `LeafSingleHandInteractor` calls `super(handType, debugMode)`.
 - **IK trigger silently goes indirect / times out** — usually means the target is genuinely out of arm reach or occluded. That's a real reachability finding about the Lens UI, not a test bug; report it instead of switching to `DefaultLeafInteractor` to force the interaction.
-- **UIKit buttons are findable as Interactables** — `RectangleButton` and `CapsuleButton` extend SIK's `Interactable`, so `findInteractablesByName("MyButton")[0]` works without any special handling.
-- **ScrollView is also an Interactable** — scroll by calling `drag()` on the ScrollView interactable. To find items inside a ScrollView, check visibility with `ScreenTransform.containsWorldPoint()` since off-screen items exist but aren't scrolled into view. See the scroll pattern in the Quick Patterns section.
+- **UIKit buttons are findable as Interactables** — UIKit `Button` (and the deprecated `RectangleButton` / `CapsuleButton`) gets or creates an InteractionKit `Interactable` component on its own SceneObject, so `findInteractablesByName("MyButton")[0]` works without any special handling.
+- **UIKit ScrollWindow is also an Interactable** — scroll by calling `drag()` on the ScrollWindow interactable. To find items inside a ScrollWindow, check visibility with `ScreenTransform.containsWorldPoint()` since off-screen items exist but aren't scrolled into view. See the scroll pattern in the Quick Patterns section.
 - **Text component name** — use `obj.getComponent("Component.Text") as Text`, not `"Text"`.
 - **No `toContain` matcher** — use `expect(str.includes("x")).toBe(true)` instead.
 - **Import errors for the LEAF package** — ensure the package is in the Lens's `Assets/` folder, not a parent directory.
-- **SpectaclesInteractionKit not found** — install SIK from Asset Library first.
+- **InteractionKit not found** — install it from the Asset Library first.
 - **Scenarios not running** — verify `LeafIndex` is on the scene and `ScenarioClient` is on an enabled SceneObject for auto-run.
 - **Shared state between scenarios** — scenarios run sequentially against the same live Lens instance. State (coins, scores, unlocked items, UI visibility) carries over. Never assert absolute starting values like `expect(coins).toBe(100)` — read the current value and assert deltas instead. Each scenario must be resilient to whatever state the previous scenario left behind.
 
 ## Package Installation
 
-For package URIs, SIK version matching, and installation steps, see the **`specs-leaf-install-packages`** skill.
+For package URIs, InteractionKit version matching, and installation steps, see the **`specs-leaf-install-packages`** skill.

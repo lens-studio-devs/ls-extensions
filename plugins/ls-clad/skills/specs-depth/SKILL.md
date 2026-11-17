@@ -20,7 +20,7 @@ Reference: `Spatial Image/`, `Depth Cache/`
 - **Snapshot a depth+color pair** (send color image to AI, get pixel coords back, place AR content in 3D) → use the [Depth Cache pattern](#depth-cache-pattern--snapshot--pixel-to-world).
 - **Visualize depth in world space** (debug the depth feed, render a live point cloud over real surfaces) → use the [Depth Texture pattern](#depth-texture-pattern--world-space-visualization).
 
-**Combining depth with AI vision models** (cache a frame, send to AI, project returned pixel coords to 3D) → see [`resources/docs/depth-and-ai.mdx`](resources/docs/depth-and-ai.mdx) for the end-to-end flow and the skill boundary.
+**Combining depth with AI vision models** (cache a frame, send to AI, project returned pixel coords to 3D) → see [`references/docs/depth-and-ai.mdx`](references/docs/depth-and-ai.mdx) for the end-to-end flow and the skill boundary.
 
 **Skill hand-offs (don't duplicate here):**
 - Sending the cached color frame to Gemini / OpenAI / DALL·E for vision or grounding → load `specs-ai-remote-service`. This skill stops at producing a `Texture` and a pixel→world function; the AI side lives there.
@@ -159,7 +159,7 @@ private onDepthFrame(data: DepthFrameData): void {
 
 ## Depth Cache pattern — snapshot + pixel-to-world
 
-Reusable component: [`resources/scripts/DepthCache.ts`](resources/scripts/DepthCache.ts) — drop into `Assets/Scripts/`.
+Reusable component: [`references/scripts/DepthCache.ts`](references/scripts/DepthCache.ts) — drop into `Assets/Scripts/`.
 
 It does three things:
 1. Continuously pairs each depth frame (~5Hz) with the closest left-color frame (~30Hz).
@@ -186,7 +186,7 @@ private async onUserAsk(prompt: string) {
 }
 ```
 
-`DepthCache.ts` uses **3×3 median sampling**, **deep-copies the depth buffer + pose** (`.slice()` the Float32Array and `mat4.fromColumns(...)` the matrix at capture time, or the cached entry silently mutates to the latest frame), and **remaps color UV → depth UV** (on Spectacles '24 the depth frame is a cropped, downscaled view of the left color frame, not the same image) — see the JSDoc in [`resources/scripts/DepthCache.ts`](resources/scripts/DepthCache.ts) for the full rationale.
+`DepthCache.ts` uses **3×3 median sampling**, **deep-copies the depth buffer + pose** (`.slice()` the Float32Array and `mat4.fromColumns(...)` the matrix at capture time, or the cached entry silently mutates to the latest frame), and **remaps color UV → depth UV** (on Spectacles '24 the depth frame is a cropped, downscaled view of the left color frame, not the same image) — see the JSDoc in [`references/scripts/DepthCache.ts`](references/scripts/DepthCache.ts) for the full rationale.
 
 ---
 
@@ -210,7 +210,7 @@ Scene
 
 **Project settings:**
 - Enable **Camera access** in Project Info (this disables open internet — use Extended Permissions during development if you also need network).
-- Add **Spectacles Interaction Kit** only if you want pinch / hand input to trigger snapshots; otherwise not required.
+- Add **Interaction Kit** only if you want pinch / hand input to trigger snapshots; otherwise not required.
 - Lens Studio Preview does **not** stream depth — test on-device.
 
 ---
@@ -219,7 +219,7 @@ Scene
 
 Render the live depth feed as a **point cloud locked to real surfaces** — the best way to *see* that depth is working and to debug placement, since it doesn't depend on reading log values.
 
-Reusable components: [`resources/scripts/DepthTextureHandler.ts`](resources/scripts/DepthTextureHandler.ts) + [`resources/scripts/CameraModel.ts`](resources/scripts/CameraModel.ts) (adapted from the internal `LabsCvLenses/DepthTexture` sample).
+Reusable components: [`references/scripts/DepthTextureHandler.ts`](references/scripts/DepthTextureHandler.ts) + [`references/scripts/CameraModel.ts`](references/scripts/CameraModel.ts).
 
 How it works:
 1. Each depth frame, build a `CameraModel` from the frame's intrinsics and feed the **inverse intrinsic matrix** + **`deviceCamera.pose`** into a custom instanced material (`mainPass.cameraFromDepthPixel`, `mainPass.deviceRefFromCamera`).

@@ -203,6 +203,34 @@ if (flags.target) {
 const willScale = scale.some(s => s !== 1);
 console.log(`--- Normalize: current=[${currentCm.map(v => v.toFixed(1)).join(' x ')}] cm, scale=[${scale.map(s => s.toFixed(4)).join(', ')}]${flags.yaw !== undefined ? `, yaw=${flags.yaw}°` : ''}${flags.rotate ? `, rotate=[${flags.rotate}]` : ''}${flags.ground ? ', ground=on' : ''}${flags['mark-canonical'] ? ', mark-canonical' : ''} ---`);
 
+// Shear guard: a per-axis (non-uniform) scale multiplies each basis column of a
+// node's matrix by a different factor. That is only valid on an axis-aligned
+// (diagonal) basis — on a matrix that already carries a rotation it shears the
+// geometry. This is exactly the corruption a two-pass "rotate, then target"
+// invocation produces: the first pass bakes a rotation into node.matrix, the
+// second pass's per-axis --target then scales that rotated basis. Refuse it and
+// point at the single-pass path: this tool applies scale in the authored
+// (pre-rotation) frame FIRST, then bakes the rotation, so one
+// `--rotate=… --target=…` call is shear-free (give --target in the pre-rotation
+// frame). A TRS/quaternion rotation is untouched by scaling (scale stays in the
+// authored frame) and uniform --max-dim never shears, so both are exempt.
+const nonUniformScale = willScale && !(Math.abs(scale[0] - scale[1]) < 1e-9 && Math.abs(scale[1] - scale[2]) < 1e-9);
+if (nonUniformScale) {
+    const BASIS_EPS = 1e-6;
+    const rotatedMatrixNode = nodes.some(n => {
+        if (!n || !n.matrix) return false;
+        const m = n.matrix; // column-major; 3x3 basis off-diagonal terms
+        return [m[1], m[2], m[4], m[6], m[8], m[9]].some(v => Math.abs(v) > BASIS_EPS);
+    });
+    if (rotatedMatrixNode) {
+        console.error('--- NORMALIZE ERROR: per-axis --target on an already-rotated mesh would shear it. ' +
+            'Run rotation and target in a SINGLE pass — this tool scales in the authored (pre-rotation) frame, ' +
+            'then bakes the rotation: `--rotate=rx,ry,rz --target=W,H,D` with --target given in the PRE-rotation ' +
+            'frame. Do not re-normalize a mesh this tool (or the source) has already rotated. ---');
+        process.exit(1);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Apply scale to BIN positions and to node transforms.
 // Positions: multiply per-vertex by `scale` componentwise (BIN buffer in place).

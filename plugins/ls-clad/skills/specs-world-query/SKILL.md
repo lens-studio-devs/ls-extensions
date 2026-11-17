@@ -13,7 +13,7 @@ SPDX-License-Identifier: Apache-2.0
 
 Lightweight, fast ray casting against real surfaces. Optimized for Specs wearable.
 
-**Requirements:** Add `WorldQueryModule` to project. Requires SIK for interactor-based ray.
+**Requirements:** Add `WorldQueryModule` to project. Requires IK for interactor-based ray.
 
 > **Performance note:** Updates at ~5Hz — suitable for static/slow surfaces only. Not for fast-moving objects.
 
@@ -48,8 +48,8 @@ session.start()
 
 ```typescript
 // WorldQueryModule required — see Setup
-const SIK = require('SpectaclesInteractionKit/SIK').SIK
-const {InteractorTriggerType} = require('SpectaclesInteractionKit/Core/Interactor/Interactor')
+import {IK} from "InteractionKit.lspkg/IK"
+import {InteractorTriggerType} from "InteractionKit.lspkg/Core/Interactor/Interactor"
 
 @component
 export class SurfacePlacer extends BaseScriptComponent {
@@ -76,7 +76,7 @@ export class SurfacePlacer extends BaseScriptComponent {
   }
 
   private onUpdate(): void {
-    const interactor = SIK.InteractionManager.getTargetingInteractors().shift()
+    const interactor = IK.InteractionManager.getTargetingInteractors().shift()
     if (!interactor?.isActive() || !interactor.isTargeting()) {
       this.targetObject.enabled = false
       return
@@ -169,7 +169,7 @@ session.hitTest(rayStart, rayEnd, (result: WorldQueryHitTestResult) => {
 
 ---
 
-## Custom Ray (without SIK interactor)
+## Custom Ray (without IK interactor)
 
 ```typescript
 // Cast ray from arbitrary points (session must be started — see Setup)

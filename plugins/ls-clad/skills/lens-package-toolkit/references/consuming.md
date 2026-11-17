@@ -50,43 +50,19 @@ After unpack: `Packages/<name>.<ext>` disappears and `Assets/<name>.<ext>/` appe
 
 ## Pull updates
 
-For task-level "update my packages" requests, use the
-[`update-lens-packages`](../../update-lens-packages/SKILL.md) skill. It lists installed
-packages, checks `canPullUpdate`, calls `pullUpdate(desc)` for selected packages, and
-verifies the resulting versions.
+For both task-level and focused consumer-side updates, use the canonical
+[`update-lens-packages`](../../update-lens-packages/SKILL.md) flow. Its path-backed
+`pull-package-updates.ts` action accepts either selected JSON `packageNames` or
+`updateAll: true`, snapshots live descriptors before it calls `pullUpdate`, and re-finds those
+descriptors instead of taking native entities as inputs. Pass those values as structured runtime
+`args`; do not restore a placeholder-based EEC body here.
 
-For a focused consumer-side update, snapshot package descriptors first, then call
-`pullUpdate` on the target descriptor. Snapshotting avoids iterating over the live assets
-collection while the update mutates package assets.
-
-```javascript
-const registry = pluginSystem.findInterface(
-  Editor.IPackageRegistry.interfaceId
-) as Editor.IPackageRegistry;
-const model = pluginSystem.findInterface(Editor.Model.IModel.interfaceId);
-
-const descriptors: Editor.Assets.NativePackageDescriptor[] = [];
-for (const asset of model.project.assetManager.assets) {
-  if (asset.getTypeName() === "NativePackageDescriptor") {
-    descriptors.push(asset as Editor.Assets.NativePackageDescriptor);
-  }
-}
-
-for (const desc of descriptors) {
-  if (desc.packageName === "<PACKAGE_NAME>" && registry.canPullUpdate(desc)) {
-    registry.pullUpdate(desc);
-  }
-}
-```
-
-Replace `<PACKAGE_NAME>` with the package to update. `pullUpdate` is synchronous/blocking
-but may take time while package assets are downloaded and updated, so use a longer
-`ExecuteEditorCode` timeout (typically `timeoutMs: 300000`) for pull-update calls that
-may hit the Asset Library. Re-list installed packages after the call returns and report
-the old/new versions. Do not add task-manager waits or polling for `pullUpdate` itself.
-If `canPullUpdate(desc)` is `false`, the installed package is already current for the
-available Asset Library candidate, or a specific version must be selected from the Asset
-Library instead.
+`pullUpdate` is synchronous/blocking but may take time while package assets are downloaded and
+updated, so invoke the canonical pull action with a longer `ExecuteEditorCode` timeout (typically
+`timeoutMs: 300000`). Re-list packages through its canonical listing action after it returns and
+report old/new versions. Do not add task-manager waits or polling for `pullUpdate` itself. If a
+package is reported in `unavailable`, it is already current for the available Asset Library
+candidate, or a specific version must be selected through the canonical Asset Library flow.
 
 ---
 
@@ -161,7 +137,18 @@ Pattern (a) is the right default; fall back to (b) for policy-4 packages or when
 
 ## Reading files inside a packed package
 
-Start with the package's README (`descriptor.readMe`) and `.d.ts` (`script.declarationFile`) — those are what the author chose to surface and usually cover the public API. Fall back to reading raw source from the cache only when you need internals the README/`.d.ts` don't expose (tracing a specific function, debugging behavior, etc.).
+Start with `ListInstalledPackagesTool` using `includeDetails: true`. Record the
+matched package version, then read its complete README and the focused documents
+it links under `Docs/`. These version-aligned docs are authoritative for
+imports, public APIs, lifecycle, setup, examples, and workarounds. A skill may
+help select or install the package but must not override those details.
+
+At the Editor API level, the same README is available through
+`descriptor.readMe`, while public typings may be attached through
+`script.declarationFile`. Fall back to reading raw source from the cache only
+when the installed README and `.d.ts` omit something needed for the current
+task. Report the package documentation gap so the durable fix lands with the
+package version rather than in a skill.
 
 Both fields are `Asset` references with no in-memory text accessor — resolve them through `cacheFile` and read with filesystem tools:
 
@@ -180,7 +167,7 @@ Most Asset-Library packages ship a populated `readMe` (MarkdownAsset) but leave 
 Each packed `.lsc` / `.lspkg` extracts its contents to `<projectDir>/Cache/<package-meta-uuid>/<source-hash>/Data/<inner-path>`. The `<package-meta-uuid>` is the UUID in the header of the package's `.meta` file (`!<AssetImportMetadata/...>`). Read those files directly with filesystem tools — `am.unpack` is not required.
 
 ```
-# Example: SpectaclesInteractionKit.lspkg.meta header is !<AssetImportMetadata/bb4fe907-…>
+# Example: InteractionKit.lspkg.meta header is !<AssetImportMetadata/bb4fe907-…>
 <projectDir>/Cache/bb4fe907-26eb-4874-99fe-f1551378d7fc/<source-hash>/Data/
 ```
 

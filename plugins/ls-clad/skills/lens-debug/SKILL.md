@@ -73,7 +73,7 @@ The preview's background (coffee table, face, hands, room) is **not in your scen
 | Symptom | Load |
 |---|---|
 | TS / scripting bug (compile, runtime, `@input`, fetch null, event timing/leak) | `lens-api` → `references/debugging.md` |
-| Specs subsystem (SIK / RSG / SyncKit / SnapML), VIO/SLAM tracking | `ls-clad:specs-debug` — *in addition to* this orchestrator |
+| Specs subsystem (IK / RSG / SyncKit / SnapML), VIO/SLAM tracking | `ls-clad:specs-debug` — *in addition to* this orchestrator |
 | Read or filter the Lens log | `ls-clad:lens-log-analysis` |
 | Inspect current scene state | `scene-construction` → `references/scene-graphql.md`, then query with `scene-graphql` |
 

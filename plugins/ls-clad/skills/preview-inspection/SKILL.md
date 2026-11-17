@@ -11,9 +11,9 @@ SPDX-License-Identifier: Apache-2.0
 
 Inspect the Lens Studio preview via `QueryRuntimeSceneTool` and `CaptureRuntimeViewTool` — see Tools below.
 
-**Scope:** Both tools work on any Lens Studio preview — Specs or Snapchat Lenses. No SIK dependency. The companion `specs-preview-interaction` skill covers driving the scene with hand actions and is Specs-only.
+**Scope:** Both tools work on any Lens Studio preview — Specs or Snapchat Lenses. No IK dependency. The companion `specs-preview-interaction` skill covers driving the scene with hand actions and is Specs-only.
 
-**Lens-side setup:** The Lens must include the `AiPreviewAgentInspect.lspkg` package with the `AgentInspectScript` component on a SceneObject. Without it, queries time out with `NO_PREVIEW`.
+**Lens-side setup:** The preview tools install the `AiPreviewAgentInspect.lspkg` package and its `AgentInspectScript` component automatically. If queries still time out with `NO_PREVIEW`, check that the component is on a SceneObject.
 
 **Verification surfaces:**
 
@@ -24,7 +24,7 @@ This skill covers the runtime side only. Editor-side fields are **not** queryabl
 
 ## Tools
 
-Both tools work against the live preview. They accept optional `previewName` (routes to a specific preview panel — see [Preview routing](#preview-routing)) and `timeoutMs` (defaults to 5000).
+Both tools work against the live preview. They accept optional `previewName` (which preview — see [Preview routing](#preview-routing)) and `timeoutMs` (defaults to 5000).
 
 | Tool | Purpose |
 |------|---------|
@@ -50,7 +50,7 @@ All scene queries go through `QueryRuntimeSceneTool` with a GraphQL string. Pass
 | Discover interactables | `{ sceneObjects(filter: {hasComponents: ["Interactable"], enabledOnly: true}) { matches { summary } } }` | `hasComponents`, `enabledOnly` |
 | Find by type | `{ sceneObjects(filter: {hasComponents: ["Text"]}) { matches { summary } } }` | `hasComponents` |
 | Find by name | `{ sceneObjects(filter: {nameContains: "Launch"}) { matches { summary } } }` | `nameContains` (case-insensitive) |
-| AND multiple components | `{ sceneObjects(filter: {hasComponents: ["Interactable", "PinchButton"]}) { matches { summary } } }` | `hasComponents` (array is AND) |
+| AND multiple components | `{ sceneObjects(filter: {hasComponents: ["Interactable", "Button"]}) { matches { summary } } }` | `hasComponents` (array is AND) |
 | Find by value | `{ sceneObjects(filter: {property: {componentType: "Text", propertyName: "text", operator: CONTAINS, value: "hi"}}) { matches { summary matchedProperty { value } } } }` | `property` |
 | Subtree-scoped find | `{ sceneObjects(filter: {descendantOf: "<rootUid>", hasComponents: ["Text"]}) { matches { summary } } }` | `descendantOf` |
 | Negative existence | `{ sceneObjects(filter: {nameContains: "X"}) { matches { summary } totalScanned } }` — assert `matches` is empty | `nameContains`, `totalScanned` |
@@ -64,18 +64,18 @@ All scene queries go through `QueryRuntimeSceneTool` with a GraphQL string. Pass
 
 Build a mental model of the scene by composing GraphQL queries through `QueryRuntimeSceneTool`. Cheap fields (`summary`) are always free; lazy fields (`transform`, `bounds`, `components`, `parent`, `children`) require explicit selection. See the Quick Reference table above for all query patterns.
 
-### Synthetic component types — the SIK pattern
+### Synthetic component types — the IK / UIKit pattern
 
-Many SIK behaviors aren't built-in component types — they're ScriptComponents whose script asset is named after the behavior (`Interactable`, `PinchButton`, `InteractableManipulation`, `ButtonFeedback`). `componentTypes` and `presentComponents` surface those script-asset names alongside real types, and `hasComponents` matches them:
+Many IK and UIKit behaviors aren't built-in component types — they're ScriptComponents whose script asset is named after the behavior (`Interactable`, `InteractableManipulation`, `InteractableColorFeedback`, UIKit `Button`). `componentTypes` and `presentComponents` surface those script-asset names alongside real types, and `hasComponents` matches them:
 
-- `{ sceneObjects(filter: {hasComponents: ["PinchButton"]}) { matches { summary } } }` — finds every PinchButton in the scene
-- `{ sceneObjects(filter: {hasComponents: ["Interactable", "ToggleButton"]}) { matches { summary } } }` — AND-combine literal types with synthetics
+- `{ sceneObjects(filter: {hasComponents: ["Button"]}) { matches { summary } } }` — finds every UIKit `Button` in the scene
+- `{ sceneObjects(filter: {hasComponents: ["Interactable", "Switch"]}) { matches { summary } } }` — AND-combine literal types with synthetics
 
-**Caveat:** synthetic names work in `hasComponents` but **not** in `property` filter (which requires a registered reader). To filter ScriptComponents by their script-asset name, use the registered `ScriptComponent` reader: `property: { componentType: "ScriptComponent", propertyName: "scriptAsset", operator: EQUALS, value: "PinchButton" }`. The predicate iterates all ScriptComponents on each object, so it correctly finds PinchButtons regardless of script attachment order.
+**Caveat:** synthetic names work in `hasComponents` but **not** in `property` filter (which requires a registered reader). To filter ScriptComponents by their script-asset name, use the registered `ScriptComponent` reader: `property: { componentType: "ScriptComponent", propertyName: "scriptAsset", operator: EQUALS, value: "Button" }`. The predicate iterates all ScriptComponents on each object, so it correctly finds Buttons regardless of script attachment order.
 
 ### Multi-component reads
 
-A SIK Interactable typically has 2-5 ScriptComponents on the same SceneObject (`Interactable` + `PinchButton` + `InteractableAudioFeedback` + `ButtonFeedback`). `components { type properties }` returns **all** of them, distinguished by `properties.scriptAsset`. Don't assume one entry per type.
+An IK Interactable typically has 2-5 ScriptComponents on the same SceneObject (e.g. `Interactable` + UIKit `Button`, or `Interactable` + `InteractableAudioFeedback` + `InteractableColorFeedback`). `components { type properties }` returns **all** of them, distinguished by `properties.scriptAsset`. Don't assume one entry per type.
 
 ### Property operators
 
@@ -131,7 +131,7 @@ GraphQL errors carry a stable `extensions.code` for branching:
 Common to both modes:
 - `viewAngle`: `isometric` (default) | `top` | `front` | `back` | `left` | `right`
 - `detail`: `low` (256×192, quick checks) | `medium` (512×384, default) | `high` (1024×768, fine details / text)
-- `previewName`: route to a specific preview panel by its label (e.g. `"Preview 1"`, `"Player 1"`, `"Wearable Experience"`)
+- `previewName`: which preview — see [Preview routing](#preview-routing)
 - `timeoutMs`: bridge timeout, default 5000
 
 ### Picking the mode
@@ -143,22 +143,14 @@ Common to both modes:
 
 ## Preview routing
 
-Both tools accept an optional `previewName` parameter to route commands to a specific preview panel. Use it whenever multiple preview panels are open — multiplayer scenes, side-by-side comparison of different Lenses, wearable-vs-camera testing, etc.
+Every preview tool takes an optional `previewName`; its description says what omitting it targets and which names it accepts. Follow the tool descriptions.
 
-**How it works:**
-- The first use of a name lazily assigns it to the next available preview panel by `panel.title` (`"Preview 1"`, `"Preview 2"`, ...). Any string works (`"Player 1"`, `"Solo Mode"`, `"Wearable Experience"`).
-- Subsequent calls with the same name route to the same panel.
-- Omitting `previewName` broadcasts to all previews (single-preview default).
-
-**Multiplayer / multi-preview workflow:**
-1. Open multiple preview panels in Lens Studio (e.g. Preview 1 and Preview 2)
-2. Query each preview's interactables separately: `QueryRuntimeSceneTool` with `previewName: "Player 1"` and `query: "{ sceneObjects(filter: {hasComponents: [\"Interactable\"]}) { matches { summary } } }"`
-3. Parallel queries across different previews are safe and encouraged.
-
-**Key behaviors:**
-- UIDs are scene-level, so multiple previews of the same scene report the same UIDs — expected.
-- Screenshots with `captureScreenshot: true` automatically capture **all** assigned previews and return them in a `screenshots` map keyed by previewName.
-- If a previewName is used but no unassigned preview panel is available, the tool throws an error asking you to open another preview panel.
+- **One preview per check.** Pass the same `previewName` (or omit it everywhere) to every tool in one check, so interaction, queries, captures and logs observe the same preview.
+- **Use exact names.** Get them from `PreviewPanelTool` `listPreviews` or `openPreview`. Never invent a label such as `"Player 1"`; if a tool rejects a name, call `listPreviews` again.
+- **Separate checks** (multiplayer participants, side-by-side comparisons, parallel agents) each get their own preview. Multiplayer participants must be visible panels; hidden previews don't join a Connected Lens session.
+- **UIDs across previews.** Authored objects share UIDs across previews of the same scene; runtime-created objects don't — re-discover in each preview.
+- **With the JS debugger (`lsdbg`).** It attaches only to a visible panel, never to a hidden preview, so a check that pairs these tools with `lsdbg` passes the `previewName` that `lsdbg attach` returns to every tool — see `lens-js-debugger` → [Debugging alongside Lens Studio MCP preview tools](../lens-js-debugger/SKILL.md#mcp-preview-tools).
+- **Show the user the result.** The user watches their visible Preview panel, not the hidden "Headless Preview" the tools use by default, and a headless `RunAndCollectLogsTool` refresh does not reload the visible panel. Scene edits are applied live to the panel's running Lens without restarting it, so startup code does not re-run against them. When a working milestone lands (the Lens runs cleanly after a build, a verified fix, or just before telling the user to try it), reload the visible panel once with `PreviewPanelTool` `refresh`, `previewName` set to its exact title from `listPreviews` (usually `"Preview 1"`) and `waitForReady: true`. With several visible panels, `refreshPreviews` reloads them together. Do it once per milestone, not after every tool call. It resets the Lens's runtime state in that panel, so skip it while the user is mid-interaction there.
 
 ## Rules
 
@@ -167,13 +159,13 @@ Both tools accept an optional `previewName` parameter to route commands to a spe
 3. **Read world position before spatial actions.** `{ sceneObject(uniqueId) { transform { worldPosition } } }` — don't guess coordinates.
 4. **Verify visually with `CaptureRuntimeViewTool`** — see Capture above for mode selection and detail levels.
 5. **Parallelize independent queries.** Multiple queries with no dependencies can run in parallel. Cross-preview parallelism is safe.
-6. **Always pass `previewName` when multiple preview panels are open.** Without it, overview queries may hit different preview panels, causing UID lookup failures.
+6. **Keep one preview per check** — see [Preview routing](#preview-routing). Mixing previews causes UID lookup failures.
 
 ## Common Mistakes
 
 - **Reusing UIDs after preview reset** — see Rules #1 above.
 - **Calling `sceneObjects` without a filter** (`INVALID_FILTER`) — use `sceneRoots` for unfiltered walks.
 - **Writing `worldPosition { x y z }` or `min { x y z }` etc.** — Vec3 leaves are JSON scalars, no subselection (see Tools above).
-- **`property: { componentType: "PinchButton", ... }`** — see Synthetic component types above.
+- **`property: { componentType: "Button", ... }`** — see Synthetic component types above.
 - **Assuming `components { type properties }` returns one entry per type** — see Multi-component reads above.
 - **Using `GetRuntimeObjectsByComponent`, `InspectRuntimeObject`, `GetRuntimeSceneOverview`, etc.** Those tools no longer exist. Use `QueryRuntimeSceneTool` for all scene queries.

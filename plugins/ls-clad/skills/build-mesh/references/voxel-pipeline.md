@@ -28,7 +28,7 @@ Use the "Voxel Static Template" or "Voxel + Animation Template" below.
 ### Step 2: Run Blender
 
 ```bash
-/Applications/Blender.app/Contents/MacOS/Blender --background --python <PROJECT_ROOT>/tempAssetGen/gen_mesh_<Name>.py
+"$(command -v blender || echo /Applications/Blender.app/Contents/MacOS/Blender)" --background --python <PROJECT_ROOT>/tempAssetGen/gen_mesh_<Name>.py
 ```
 
 ### Step 3: Verify
@@ -45,7 +45,7 @@ Use the "Voxel Static Template" or "Voxel + Animation Template" below.
 ### Step 4: Visual preview (animated meshes only)
 
 ```bash
-/Applications/Blender.app/Contents/MacOS/Blender --background --python <skill-tools-dir>/preview_glb.py -- Assets/GeneratedMeshes/<Name>.glb
+"$(command -v blender || echo /Applications/Blender.app/Contents/MacOS/Blender)" --background --python <skill-tools-dir>/preview_glb.py -- Assets/GeneratedMeshes/<Name>.glb
 ```
 
 This renders preview PNGs to `Assets/GeneratedMeshes/preview/`:

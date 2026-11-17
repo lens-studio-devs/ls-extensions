@@ -18,18 +18,16 @@ SPDX-License-Identifier: Apache-2.0
 
 ## Prerequisites (always, in order)
 
-0. **Tooling checks (start of every specs-ndk task)**
-   - Run **`cmake --version`**; if it fails, follow setup.mdx step 2 before continuing.
-   - When NDK is missing: run setup.mdx steps 2–3 (CMake gate, then auth probe); stop on CMake failure or auth gate (HTTP 401/403).
+0. **SpecsNDK + CMake check (start of every specs-ndk task)**
+   Run **`python3 tools/specsndk.py check`** (`python` on Windows) and follow **`references/setup.mdx`** for its result:
+   - SDK missing → install it.
+   - Older SDK at **`~/Dev/SpecsNDK`** → **ask** the user whether to update to the latest release. If they decline, continue with the installed SDK.
+   - CMake missing → stop and install CMake before building.
+
+   The manifest and downloads are public, so no authentication is needed. If the SDK is somewhere else, set **`SPECSNDK_ROOT`** (or pass **`--root`**). Do not skip setup silently when the sandbox blocks **`python3`**.
 
 1. **SpecsNDK on disk**
-   Before scaffolding or building, verify the SDK root exists:
-
-   - Path: **`$HOME/Dev/SpecsNDK`** (same as `~/Dev/SpecsNDK`).
-
-   If that directory **does not exist**, is **empty**, or lacks the expected toolchain layout, run **`references/setup.mdx`**: **CMake verify (stop + `brew install cmake` if needed)** → dirs → **auth probe (stop + `brew install --cask google-cloud-sdk` + `gcloud auth login` if 401/403)** → download via **`tools/download_specsndk.py`**. On failure, **User-run fallback**. Other SDK path → **`SPECSNDK_ROOT`**.
-
-   Do not skip setup silently when the sandbox blocks **`brew`** or **`python3`** download.
+   Build against **`$HOME/Dev/SpecsNDK`** (or **`SPECSNDK_ROOT`**) once step 0 reports it installed.
 
    Module scaffolding is **only** via this skill’s **`tools/scaffold.py`** and templates under **`resources/NativeModule/`**, **`resources/LensStudio/`**, and **`resources/README.md.tpl`**—no other repo.
 
@@ -84,66 +82,30 @@ SPDX-License-Identifier: Apache-2.0
 
 7. **Attach controller to scene hierarchy (required)**
 
-   Run **after step 1 (scaffold)** on every specs-ndk task when the **`ExecuteEditorCode`** MCP tool is available. Load **`editor-api`** before writing the snippet.
+   Run **after step 1 (scaffold)** on every specs-ndk task when the **`ExecuteEditorCode`** MCP tool is available. Call the path-backed action with structured runtime `args`.
 
    - **Goal:** Ensure some **`SceneObject`** has a **`ScriptComponent`** whose **`scriptAsset`** is **`Assets/Scripts/<FeatureName>Controller.ts`** (asset display name **`"<FeatureName>Controller"`**).
    - **Idempotent:** If **any** object in **`scene.sceneObjects`** already has a **`ScriptComponent`** bound to that script asset (match by asset **id** or **name**), **do not** add another host — return **`alreadyPresent: true`**.
-   - **Otherwise:** Create **`"<FeatureName>ControllerRoot"`** (or reuse that object if it exists without the script), add **`ScriptComponent`** if missing, assign **`scriptAsset`**, then **`model.project.save()`** when the API allows.
+   - **Otherwise:** Create **`"<FeatureName>ControllerRoot"`** (or reuse that object if it exists without the script), reuse only an unassigned **`ScriptComponent`** (add another when existing components host other scripts), assign **`scriptAsset`**, then **`model.project.save()`** when the API allows.
    - **Do not** use this step to build **`FlippedImage`** scene content (RGBA prefab is runtime-only; see step **8**).
 
-   Replace **`<FeatureName>`** with the derived feature name (e.g. `MyFeature` for `MyFeatureModule`).
+   Call the path-backed action with the derived feature name (for example, `MyFeature` for `MyFeatureModule`):
 
-   ```typescript
-   const model = pluginSystem.findInterface(Editor.Model.IModel);
-   const scene = model.project.scene;
-   const assetManager = model.project.assetManager;
-   const FEATURE = "<FeatureName>";
-   const SCRIPT_NAME = FEATURE + "Controller";
-   const ROOT_NAME = FEATURE + "ControllerRoot";
-
-   const scriptAsset = (assetManager.assets as any[]).find(
-     (a: any) => a && (a.name === SCRIPT_NAME || String(a.name).endsWith("/" + SCRIPT_NAME))
-   );
-   if (!scriptAsset) return JSON.stringify({ error: "Controller asset not found", scriptName: SCRIPT_NAME });
-
-   const scriptId = scriptAsset.id != null ? String(scriptAsset.id) : "";
-   for (const o of scene.sceneObjects) {
-     for (const c of o.components) {
-       if (c.getTypeName() !== "ScriptComponent") continue;
-       const sc = c as Editor.Components.ScriptComponent;
-       const sa = sc.scriptAsset as any;
-       if (!sa) continue;
-       if (sa === scriptAsset || (scriptId && String(sa.id) === scriptId) || sa.name === SCRIPT_NAME) {
-         return JSON.stringify({ ok: true, alreadyPresent: true, hostId: o.id.toString(), hostName: o.name });
-       }
-     }
-   }
-
-   let host = scene.sceneObjects.find((o: Editor.Model.SceneObject) => o.name === ROOT_NAME);
-   if (!host) host = scene.createSceneObject(ROOT_NAME);
-
-   let hostSc = host.components.find((c: Editor.Components.Component) => c.getTypeName() === "ScriptComponent") as
-     | Editor.Components.ScriptComponent
-     | undefined;
-   if (!hostSc) hostSc = host.addComponent("ScriptComponent") as Editor.Components.ScriptComponent;
-   hostSc.scriptAsset = scriptAsset;
-
-   try {
-     model.project.save();
-   } catch (_e) {
-     /* save optional if API throws */
-   }
-
-   return JSON.stringify({ ok: true, created: true, hostId: host.id.toString(), hostName: host.name });
+   ```text
+   ExecuteEditorCode({
+     path: "<absolute path to this skill>/actions/attach-controller.ts",
+     args: { featureName: "MyFeature" }
+   })
    ```
 
-   - If **`ExecuteEditorCode`** is unavailable, **stop and tell the user** to attach **`FeatureNameController`** to a **`SceneObject`** in the Inspector before preview — do not claim the module is wired.
+   The action validates `featureName`, resolves the controller asset and host SceneObject in the Editor, preserves the idempotent asset-id/name match, and saves when supported. It returns `alreadyPresent` or `created` with the host identity; an asset lookup or mutation error is an action failure, so do not claim the module is wired.
 
 8. **`FlippedImage.lspkg` (only when `getFrameRGBA` / RGBA preview is in use)**
 
    Run **only** if the module exports **`getFrameRGBA`** (e.g. **`--with-rgba-frame`**). **Skip** for **`ping()`-only** modules.
 
    - Confirm `Assets/Prefabs/FlippedImage.lspkg` is present from scaffold (`--with-rgba-frame`); runtime uses `requireAsset`+`instantiate` only (no Editor-built `Image` SceneObject).
+   - Note: the scaffold copies the packed `FlippedImage.lspkg` into `Assets/Prefabs/` because the controller's `requireAsset` path (under `../Prefabs/`) depends on it. Current Lens Studio projects otherwise keep installed packages packed under the project's `Packages/` folder (not unpacked in `Assets/`); if you relocate `FlippedImage.lspkg` there, update the `requireAsset` path in the controller to match.
 
 9. **Scope**
    - Prefer edits inside the scaffolded **`<ModuleName>/`** directory; when exports change, also edit **`Assets/Scripts/<FeatureName>NativeModule.ts`** and **`Assets/Scripts/<FeatureName>Controller.ts`** (or the user’s chosen script) unless they ask otherwise.
@@ -164,4 +126,4 @@ SPDX-License-Identifier: Apache-2.0
 - Behavior: one bullet per export or wiring change.
 - **Scene:** step **7** result (**`alreadyPresent`** / **`created`** / manual / blocked — include **`hostId`** when returned).
 - Build: success/failure with key lines.
-- If setup ran: note **`~/Dev/SpecsNDK`** (and tarball/quarantine/auth) status.
+- SpecsNDK: `check` status and versions; any install/update result (including `backupPath`) or a declined update.

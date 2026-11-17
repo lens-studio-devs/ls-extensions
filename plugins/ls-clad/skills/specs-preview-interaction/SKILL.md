@@ -1,6 +1,6 @@
 ---
 name: specs-preview-interaction
-description: Use when driving the Lens Studio preview with hand actions — Pinch / Hover / Poke / Drag / Gesture / Release / Rotate / Wait — to trigger buttons, manipulate objects, compose multi-step interaction sequences, or verify Lens behavior end-to-end. Specs-only (requires SIK). For scene queries and visual capture, use the preview-inspection skill.
+description: Use when driving the Lens Studio preview with hand actions — Pinch / Hover / Poke / Drag / Gesture / Release / Rotate / Wait — to trigger buttons, manipulate objects, compose multi-step interaction sequences, or verify Lens behavior end-to-end. Specs-only (requires InteractionKit). For scene queries and visual capture, use the preview-inspection skill.
 ---
 <!--
 Copyright 2026 Specs Inc.
@@ -9,11 +9,11 @@ SPDX-License-Identifier: Apache-2.0
 
 # Preview Interaction
 
-Drive the Lens Studio preview with `PreviewInteractTool` — a synthetic puppet hand that fires SIK trigger events (`onTriggerStart`, `onTriggerEnd`, etc.) against Interactable components. Discover targets and verify state changes via the **`preview-inspection`** skill (`QueryRuntimeSceneTool`, `CaptureRuntimeView`).
+Drive the Lens Studio preview with `PreviewInteractTool` — a synthetic puppet hand that fires IK trigger events (`onTriggerStart`, `onTriggerEnd`, etc.) against Interactable components. Discover targets and verify state changes via the **`preview-inspection`** skill (`QueryRuntimeSceneTool`, `CaptureRuntimeViewTool`).
 
-**Scope:** `PreviewInteractTool` targets Specs previews and requires the Spectacles Interaction Kit (SIK) — the hand actions are SIK-driven and do not apply to mobile/camera Lens Studio projects.
+**Scope:** `PreviewInteractTool` targets Specs previews and requires the InteractionKit (IK) — the hand actions are IK-driven and do not apply to mobile/camera Lens Studio projects.
 
-**Lens-side setup:** The Lens must include the `AiPreviewAgentInteract.lspkg` package (which depends on `AiPreviewAgentInspect.lspkg`) with both `AgentInspectScript` and `AgentInteractScript` components on the same SceneObject. Without `AgentInteractScript`, interaction commands fail with `unknown_command`.
+**Lens-side setup:** Hand-action tools install this automatically on first use; the manual setup is the fallback. The Lens needs the `AiPreviewAgentInteract.lspkg` package (which depends on `AiPreviewAgentInspect.lspkg`, `InteractionKit` and `Leaf`) with both `AgentInspectScript` and `AgentInteractScript` components on the same SceneObject (Inspect first, or Interact on a descendant). `AiPreviewAgentInspect` itself has no package dependencies and ships no demo prefab or example scripts — only the bridge scripts — so don't look for a place-in-scene prefab from it. Without `AgentInteractScript`, interaction commands fail with `unknown_command`.
 
 ## Tool
 
@@ -25,7 +25,7 @@ Target interactions with `uniqueId` (for interactable objects) or `worldPosition
 
 ## Workflow
 
-After discovery and inspection (see the `preview-inspection` skill), the interact-verify-recover loop is: call `PreviewInteractTool`, then on success verify with `QueryRuntimeSceneTool` or `CaptureRuntimeView`; on error handle by `reason` and retry.
+After discovery and inspection (see the `preview-inspection` skill), the interact-verify-recover loop is: call `PreviewInteractTool`, then on success verify with `QueryRuntimeSceneTool` or `CaptureRuntimeViewTool`; on error handle by `reason` and retry.
 
 ## Quick Reference
 
@@ -48,7 +48,7 @@ After discovery and inspection (see the `preview-inspection` skill), the interac
 
 - **Name-based lookup as fallback:** For dynamically spawned objects with unstable UIDs, use `name` + `parentName` parameters instead of `uniqueId`. The tool will resolve the object at call time.
 - **`resolvedUniqueId` in responses:** When a `CommandSuccess` response is returned from a name-based lookup, it includes a `resolvedUniqueId` field containing the UID that was actually used. Save this for subsequent calls within the same session to avoid repeated name resolution.
-- **Pinch vs. Poke:** Both fire `onTriggerStart` / `onTriggerEnd` on a target, but SIK uses a different trigger pathway for each. Use `Pinch` for pickup/manipulation interactables (typical `targetingMode: Direct/Indirect`) and for `PinchButton` UI. Use `Poke` for buttons/UI whose `targetingMode` includes `Poke` or `All` — extended-finger push, no pinch. If a `Poke` target times out on `onTriggerStart` while `Pinch` works on the same object, the interactable's `targetingMode` doesn't include Poke; that's expected SIK gating, not a tool failure.
+- **Pinch vs. Poke:** Both fire `onTriggerStart` / `onTriggerEnd` on a target, but IK uses a different trigger pathway for each. Use `Pinch` for pickup/manipulation interactables and for buttons whose `targetingMode` includes Direct or Indirect (the default is `Direct/Indirect`). Use `Poke` for buttons/UI whose `targetingMode` includes `Poke` or `All` — extended-finger push, no pinch. If a `Poke` target times out on `onTriggerStart` while `Pinch` works on the same object, the interactable's `targetingMode` doesn't include Poke; that's expected IK gating, not a tool failure.
 
 ## Targeting
 
@@ -143,7 +143,7 @@ Use Batch when a sequence is known in advance. Fail-fast: execution stops at the
 
 **Failure response** — execution aborts at `failedAtIndex`; `skippedSteps` is the un-executed tail. Resolve the `reason`, release any held hand (check `handState`), then re-issue from `failedStep` + `skippedSteps`. See `references/batch-recovery.md` for the full field list and recovery checklist.
 
-**Wait — settle step between batch actions.** Use sparingly: only when a UI element you are about to interact with has just been enabled/revealed by a prior step and may need a frame or two to settle (common with SIK-backed buttons and sliders that appear in response to state changes). Insert a Wait *before each* interaction whose target was revealed by the previous step — a single flow often needs more than one. Symptom of a missing Wait: `Timed out waiting for onTriggerStart for "<target>"` on the step that follows the reveal. Typical values: 200–500 ms. Not valid outside a Batch. Capped at 10000 ms — exceeding the cap returns an error rather than silently clamping.
+**Wait — settle step between batch actions.** Use sparingly: only when a UI element you are about to interact with has just been enabled/revealed by a prior step and may need a frame or two to settle (common with UIKit buttons and sliders that appear in response to state changes). Insert a Wait *before each* interaction whose target was revealed by the previous step — a single flow often needs more than one. Symptom of a missing Wait: `Timed out waiting for onTriggerStart for "<target>"` on the step that follows the reveal. Typical values: 200–500 ms. Not valid outside a Batch. Capped at 10000 ms — exceeding the cap returns an error rather than silently clamping.
 
 Example — tap a path option to reveal a slider, drag the slider to reveal a launch button, then tap launch (Wait before both revealed targets):
 
@@ -169,7 +169,7 @@ Example — tap a path option to reveal a slider, drag the slider to reveal a la
 
 ## Multiplayer / Connected Lenses Sessions
 
-Multiplayer Lenses (Connected Lenses / SyncKit) only sync once **every** preview window has joined the session. The **Multiplayer** join button is an **in-Lens SpectaclesUIKit element rendered inside the runtime** — each preview window draws its own copy. So you join the session the same way you trigger any other button: with `PreviewInteractTool` (`Pinch` or `Poke`), **once per preview window**.
+Multiplayer Lenses (Connected Lenses / SyncKit) only sync once **every** preview window has joined the session. The **Multiplayer** join button is an **in-Lens UIKit element rendered inside the runtime** — each preview window draws its own copy. So you join the session the same way you trigger any other button: with `PreviewInteractTool` (`Pinch` or `Poke`), **once per preview window**. Use visible Preview panels for every participant: hidden previews such as "Headless Preview" don't join the session.
 
 **Before interacting with or verifying a multiplayer Lens:**
 
@@ -183,10 +183,10 @@ If synced objects are missing, a participant's actions don't propagate, or `not_
 1. **Always discover first.** UIDs change across preview resets. Never cache or guess UIDs. Use the `preview-inspection` skill to discover interactables before triggering them.
 2. **Use `parentName` to disambiguate.** Multiple interactables share the name "Background" — `parentName` tells you which is which (e.g., `"Sleek Nose Cone"` vs `"Modern Nose Cone"`).
 3. **Read world position before spatial actions.** Use `QueryRuntimeSceneTool` to read `transform { worldPosition }` — don't guess coordinates.
-4. **Verify after state changes.** Use `QueryRuntimeSceneTool` for data assertions or `CaptureRuntimeView` for visual verification.
+4. **Verify after state changes.** Use `QueryRuntimeSceneTool` for data assertions or `CaptureRuntimeViewTool` for visual verification.
 5. **Parallelize independent actions.** Multiple triggers with no dependencies can run in parallel. Cross-preview parallelism is safe.
 6. **Never parallelize actions on the same hand.** Two interactions using the right hand will fight. Run sequentially, or use `handType: "left"` for the second.
-7. **Always pass `previewName` when multiple preview panels are open.** Without it, interaction commands may hit different preview panels, causing UID lookup failures.
+7. **Keep one preview per check** — `preview-inspection` → Preview routing. Mixing previews causes UID lookup failures.
 8. **Check `handState` in responses.** It reflects both hands — use it; don't track manually. (Full detail in the Hand State section.)
 9. **Release before switching targets.** If the right hand is holding object A, you can't interact with object B using the same hand. Release first or use the left hand.
 
@@ -196,19 +196,19 @@ Interaction errors return a `reason` field. Handle by reason:
 
 | Reason | Meaning | Recovery |
 |--------|---------|----------|
-| `clipped` | Target is outside a scroll view's visible bounds | Drag the ScrollBar or ScrollView to reveal it, then retry |
+| `clipped` | Target is outside a scroll view's visible bounds | Drag the ScrollBar or ScrollWindow to reveal it, then retry |
 | `obstructed` | Another object is physically blocking the target | Report to user — may need scene reorganization |
 | `not_found` | No interactable with that uniqueId | Re-run the discovery query — UIDs may have changed after a preview reset |
 | `disabled` | Interactable exists but is disabled | Skip, or check if a prior action should have enabled it |
 | `interactor_busy` | Hand is currently holding an object or mid-interaction | Check `handState` in the error response. Release the held object first, or use the other hand. |
 | `unknown_command` | The Lens-side AgentInteractScript is not installed | Add `AiPreviewAgentInteract.lspkg` and `AgentInteractScript` to the Lens scene |
-| `INTERNAL_ERROR` | Lens-side exception, often surfaces as "Timed out waiting for onTriggerStart" on SIK Interactables — known issue, side-effects can land before the timeout | Do not blindly retry uniqueId-targeted SIK actions (they may double-apply); fall back to coordinate-targeted (`worldPosition`) actions or report the failure |
+| `INTERNAL_ERROR` | Lens-side exception, often surfaces as "Timed out waiting for onTriggerStart" on IK Interactables — known issue, side-effects can land before the timeout | Do not blindly retry uniqueId-targeted IK actions (they may double-apply); fall back to coordinate-targeted (`worldPosition`) actions or report the failure |
 
 ## Scroll View Pattern
 
 Items inside a scroll view may be clipped. The pre-flight validator catches this instantly. To interact with a clipped item:
 
-1. Find the ScrollBar or ScrollView interactable in the same container via `QueryRuntimeSceneTool`
+1. Find the ScrollBar or ScrollWindow interactable in the same container via `QueryRuntimeSceneTool`
 2. Read its current `transform { worldPosition }`
 3. `Drag` the scroll bar to reveal the target
 4. Retry the original interaction
@@ -221,4 +221,5 @@ Items inside a scroll view may be clipped. The pre-flight validator catches this
 - **Ignoring error reasons.** A `clipped` error is actionable — scroll first. A generic timeout tells you nothing.
 - **Joining the multiplayer session in only one preview window.** See the Multiplayer / Connected Lenses Sessions section — one un-joined window stalls the whole session.
 - **Expecting different positions on SyncTransform objects.** Multiplayer-synced objects converge across previews — the last write wins. Stagger interactions to observe each preview's effect independently.
-- **Trying to interact on a Snapchat (non-Specs) Lens.** `PreviewInteractTool` requires SIK; it has no equivalent on mobile/camera previews.
+- **Driving one preview while debugging another.** `PreviewInteractTool` reports success, but `lsdbg` breakpoints and probes never fire, because the hand ran in a different preview's Lens VM. Pass the `previewName` that `lsdbg attach` returns — see `lens-js-debugger` → [Debugging alongside Lens Studio MCP preview tools](../lens-js-debugger/SKILL.md#mcp-preview-tools).
+- **Trying to interact on a Snapchat (non-Specs) Lens.** `PreviewInteractTool` requires IK; it has no equivalent on mobile/camera previews.

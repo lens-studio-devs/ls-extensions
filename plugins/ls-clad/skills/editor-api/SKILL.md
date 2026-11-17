@@ -26,15 +26,21 @@ If the task in front of you maps to one of these rows, **prefer the dedicated to
 
 ## Runtime
 
-Code runs as an **ES2021 async function body** with a `pluginSystem` parameter:
+Code runs as an **ES2021 async function body** with `pluginSystem` and `args` injected:
 
 ```ts
-async function(pluginSystem) {
-  // your code here
-}
+// This is the complete file/body passed through `path` or `code`.
+// `pluginSystem` and `args` are already in scope.
+return { hasRuntimeArgs: Object.keys(args).length > 0 };
 ```
 
-**Input**: `{ path: string }` when the script is on disk, else `{ code: string }` — see below
+`args` is a `Readonly<Record<string, unknown>>`: a JSON-compatible object cloned by the tool. If
+the caller omits it, the body receives `{}`. It is invocation data, **not source substitution**;
+do not construct TypeScript by replacing placeholders or interpolating argument values into source.
+Each body validates the required argument names and value types before it performs a mutation.
+
+**Input**: `{ path: string, args?: object }` when the script is on disk, else
+`{ code: string, args?: object }` — see below
 **Success**: `{ status: "Execution Succeeded", returnValue: <value>, console: [...] }`
 **Compile error**: `{ status: "Compilation Failed", errors: [...], console: [...] }`
 **Runtime error**: `{ status: "Execution Failed", error: <message>, stack: <trace>, console: [...] }`
@@ -43,18 +49,39 @@ Use `return` to produce output. `console.log()` calls are captured in the `conso
 
 ### Input — pass a path when the script is already on disk
 
-Two ways to supply the source. They are mutually exclusive; `path` wins if you send both.
+Two ways to supply the source. They are mutually exclusive; `path` wins if you send both. `args`
+is independent invocation data for either source form.
 
 | Param | Use when | Notes |
 | --- | --- | --- |
 | `path: string` | the script already exists as a file | The tool reads the file itself. Absolute path, readable by the Lens Studio process. |
 | `code: string` | you are composing the snippet right now | Send the source inline. |
+| `args: object` | the body needs ordinary per-invocation data | JSON-compatible object only; omit for `{}`. Never pass callbacks, `undefined`, non-finite numbers, `bigint`, `Editor.Path`, entities, buffers, or other native values. |
 
 **Never `Read` a `.ts` file just to paste its contents back as `code`.** That pays for the source twice — once as the read result, once as the tool argument — and for a large pinned script that is thousands of tokens per call. Pass `path` and the body never enters your context at all.
 
 The file must hold the same thing `code` does: an async function body with **no top-level `import`/`export` statements** (use `await import("LensStudio:…")`). A real module file will not run. Both inputs share the same 50,000-character ceiling.
 
-Bad paths fail loudly rather than silently falling back to `code` — `File not found: <path>` or `Not a file: <path>`. If instead you get `Missing required parameter: 'code' (string)`, the Lens Studio build predates `path`: read the file and pass `code` for that session.
+Bad paths fail loudly rather than silently falling back to `code` — `File not found: <path>` or
+`Not a file: <path>`. Inline `code` remains a first-class input for snippets composed for the
+current call; do not read an existing pinned file merely to resend it inline.
+
+### Focused migration boundary and intentional exceptions
+
+This contract governs a known reusable Editor operation whose source already exists on disk: call
+the pinned body by absolute `path` and send ordinary invocation data as JSON `args`. Do not ask an
+agent to edit source constants, replace placeholders, or paste that reusable body inline.
+
+Three cases deliberately remain outside that conversion rule:
+
+- [`specs-publish`](../specs-publish/SKILL.md) keeps its generated/pinned-path transport. Its
+  scripts carry confirmed user intent, authorization, recovery receipts, and session-private state;
+  moving those values into ordinary `args` needs a separate safety design.
+- [`lens-studio-router`](../lens-studio-router/SKILL.md) keeps `inspect-session.ts` as a static,
+  path-only probe. It has no per-invocation data, so adding `args` would provide no benefit.
+- Short one-off or teaching snippets may stay inline when extracting a file would obscure the
+  lesson. They must not become a reusable mutable template; once an operation is repeated or
+  parameterized, make it an owning-skill path-backed action instead.
 
 ## Editor API Entry Points
 

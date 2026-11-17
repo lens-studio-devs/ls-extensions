@@ -162,10 +162,10 @@ export class Draggable extends BaseScriptComponent {
 
 On Specs, there's no screen for `screenSpaceToWorldSpace` to anchor onto. The physics side stays the same — only the **ray source** and the **input event** change:
 
-- Replace `TouchStartEvent` / `TouchMoveEvent` / `TouchEndEvent` with SIK pinch / interactable events.
-- Replace `rayFromTouch(...)` with SIK's targeting ray, or `GestureModule` head/gaze pose.
+- Replace `TouchStartEvent` / `TouchMoveEvent` / `TouchEndEvent` with IK pinch / interactable events.
+- Replace `rayFromTouch(...)` with IK's targeting ray, or `GestureModule` head/gaze pose.
 
-For the canonical recipes (targeting ray, pinch-pull-release, fist-grab, init-order rule), use `ls-clad:specs-interaction-recipes`. Don't inline ad-hoc gaze code — the SIK + `HandInputData` patterns there handle paired-phone fallback and editor-mock correctly.
+For the canonical recipes (targeting ray, pinch-pull-release, fist-grab, init-order rule), use `ls-clad:specs-interaction-recipes`. Don't inline ad-hoc gaze code — the IK + `HandInputData` patterns there handle paired-phone fallback and editor-mock correctly.
 
 ### Multi-touch — one drag per finger
 

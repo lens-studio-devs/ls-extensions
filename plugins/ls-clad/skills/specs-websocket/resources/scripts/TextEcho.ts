@@ -23,8 +23,8 @@ export class TextEcho extends BaseScriptComponent {
   internetModule: InternetModule;
 
   @input
-  @hint("WebSocket server URL (e.g., ws://192.168.1.100/ws)")
-  ipAddress: string = "ws://192.168.1.100/ws";
+  @hint("WebSocket server URL. Placeholder: replace YOUR-IP-ADDRESS with your server's IP (e.g., ws://192.168.1.100/ws).")
+  ipAddress: string = "ws://YOUR-IP-ADDRESS/ws";
 
   @ui.separator
   @ui.label('<span style="color: #60A5FA;">Logging Configuration</span>')

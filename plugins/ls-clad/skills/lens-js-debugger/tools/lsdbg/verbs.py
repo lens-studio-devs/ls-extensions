@@ -29,7 +29,9 @@ VERB_CATALOG: tuple[VerbDef, ...] = (
     VerbDef(
         "attach",
         "Start a debug session and block until the VM is live — idempotent, so it "
-        "doubles as the readiness gate. Returns {attached, targetId, state}.",
+        "doubles as the readiness gate. Returns {attached, targetId, title, state}; a "
+        "Preview panel target adds previewName — pass it to Lens Studio MCP preview "
+        "tools so they drive the VM being debugged (hidden previews are not targets).",
         flags=("--target", "--timeout"),
     ),
     VerbDef("list-commands", "List available high-level commands", flags=("--summary",)),

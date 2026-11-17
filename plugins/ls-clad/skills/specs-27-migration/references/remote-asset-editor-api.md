@@ -3,88 +3,62 @@ Copyright 2026 Specs Inc.
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# Editor API snippets
+# Editor API actions
 
-Annotated reference for the ExecuteEditorCode calls this skill uses. Each snippet is self-contained — copy, paste, fill in the names. Treat the prose between snippets as the spec for what each call returns.
+Annotated reference for the path-backed ExecuteEditorCode actions this skill uses. Pass the listed
+per-call values as structured runtime `args`.
 
 ## Enumerate remote reference assets and read their metadata
 
-There's no UUID-keyed lookup you need here — walk `assetManager.assets` and duck-type. `instanceof Editor.Assets.RemoteReferenceAsset` throws `invalid 'instanceof' right operand` at runtime, so test the asset's own fields instead. Each remote asset exposes a `metadata` property (`Editor.Assets.RemoteAssetMetadata | null`) describing the server-side object.
+There's no UUID-keyed lookup you need here — the action walks `assetManager.assets` and duck-types. `instanceof Editor.Assets.RemoteReferenceAsset` throws `invalid 'instanceof' right operand` at runtime, so the action tests the asset's own fields instead. Each returned record exposes a stable `remoteAssetId`, plus nullable metadata identity/type/size/checksum and `hasDownload`; it intentionally does not return a CDN URL.
 
-```ts
-const model: any = pluginSystem.findInterface(Editor.Model.IModel);
-const isRemote = (a: any) => a && "assetId" in a && "requestTiming" in a && "sourceType" in a;
-
-const out: any[] = [];
-const walk = (a: any) => {
-  if (!a) return;
-  if (isRemote(a)) {
-    const m = a.metadata;                  // Editor.Assets.RemoteAssetMetadata | null
-    out.push({
-      name: a.name,
-      assetId: String(a.assetId),          // Lens Cloud manifest ID
-      meta: m && {
-        id: m.id,
-        name: m.name,
-        type: Number(m.type),              // Editor.Assets.RemoteAssetType enum (numeric)
-        size: m.size,
-        url: m.resource?.url,              // CDN object URL — the bytes to re-host
-        checksum: m.resource?.checksum,    // uppercase hex SHA-256
-      },
-    });
-  }
-  for (const k of (a.children ?? [])) walk(k);
-};
-for (const a of model.project.assetManager.assets) walk(a);
-return out;
+```text
+ExecuteEditorCode({
+  path: "<absolute path to specs-27-migration skill>/actions/list-remote-assets.ts",
+  args: {}
+})
 ```
 
-`metadata` is server-provided and nullable — guard for `null` before reading `resource.url`. `metadata.type` is an `Editor.Assets.RemoteAssetType`: `Mesh=0, Texture=1, ObjectPrefab=2, Script=3, Audio=4, MlAsset=5, Invalid=6`.
+`metadata` is server-provided and nullable. `metadata.type` is an `Editor.Assets.RemoteAssetType`: `Mesh=0, Texture=1, ObjectPrefab=2, Script=3, Audio=4, MlAsset=5, Invalid=6`.
 
 ## Download the bundle bytes
 
-`metadata.resource.url` is a plain HTTPS URL to the Lens Cloud CDN object. Fetch it with `LensStudio:Network` and write it with `LensStudio:FileSystem`. The response `body` is an `Editor.Buffer` — use `.toBytes()` for binary; `.toString()` corrupts non-text payloads.
+Pass the stable `remoteAssetId` from enumeration and a strictly validated `.prfb` basename only. The action rejects directory/path arguments, separators, traversal, dot-normalization, NUL, and non-`.prfb` names. It creates its own fresh private `LensStudio:FileSystem.TempDir` inside ExecuteEditorCode, resolves `metadata.resource.url` only there, fetches with `LensStudio:Network`, and writes binary `body.toBytes()` to the generated path. Never pass a raw CDN URL or output location through `args`.
 
-```ts
-const Network = await import("LensStudio:Network");
-const FS = await import("LensStudio:FileSystem");
-
-const req = new Network.HttpRequest();
-req.url = "<metadata.resource.url>";
-req.method = Network.HttpRequest.Method.Get;
-
-const resp: any = await new Promise((resolve) => Network.performHttpRequest(req, resolve));
-// A 4xx/5xx returns an error page with no resp.error — guard the status or you'll write it as the bundle.
-if (resp.error || resp.statusCode < 200 || resp.statusCode >= 300) {
-  throw new Error(`HTTP ${resp.statusCode}: ${resp.error || "non-2xx status"}`);
-}
-
-const bytes: Uint8Array = resp.body.toBytes();
-FS.writeFile(new Editor.Path("<absoluteOutPath>"), bytes);   // (Editor.Path, Uint8Array | string)
-return { statusCode: resp.statusCode, bytesWritten: bytes.length };
+```text
+ExecuteEditorCode({
+  path: "<absolute path to specs-27-migration skill>/actions/download-remote-asset.ts",
+  args: {
+    remoteAssetId: "<remoteAssetId from list-remote-assets>",
+    outputFileName: "MyBundle.prfb"
+  }
+})
 ```
 
-`performHttpRequest(req, cb)` is callback-style — wrap it in a `Promise` so the `ExecuteEditorCode` call can `await` the response. `HttpRequest.Method` enum: `Get=0, Post=1, Put=2, Delete=3`.
+The result returns the metadata `checksum` and `size`, HTTP status, an opaque `downloadHandle`, and the generated `writeReceipt: { path, bytesWritten }`. The action retains the private TempDir under that handle for the current Lens Studio session, so use the receipt path immediately for byte-exact verification and upload. A failed download returns only the stable `remoteAssetId`, HTTP status, and a sanitized error, never a response error that might contain a signed CDN URL.
 
 ## Verify the download
 
-The download is byte-exact — confirm it against the metadata before uploading. The checksum is uppercase hex SHA-256; `shasum` emits lowercase, so compare case-insensitively.
+The download is byte-exact — confirm the returned `checksum` and `size` against `writeReceipt.path` before uploading. The checksum is uppercase hex SHA-256; `shasum` emits lowercase, so compare case-insensitively.
 
 ```bash
-shasum -a 256 "<outPath>"   # must equal metadata.resource.checksum (lowercased)
-stat -f%z "<outPath>"       # must equal metadata.size
-file "<outPath>"            # 'Zip archive data' => .prfb runtime bundle => loadResourceAsRuntimeBundle
+shasum -a 256 "<writeReceipt.path>"   # must equal returned checksum (lowercased)
+stat -f%z "<writeReceipt.path>"       # must equal returned size
+file "<writeReceipt.path>"            # 'Zip archive data' => .prfb runtime bundle => loadResourceAsRuntimeBundle
 ```
 
-## Clean up the download
+## Release the retained download
 
-The download lives outside `Assets/`. Once it's uploaded and verified, delete the file:
+After byte-exact verification and upload succeed, release the retained TempDir by handle. This action accepts no filesystem path and is idempotent:
 
-```bash
-rm "<outPath>"
+```text
+ExecuteEditorCode({
+  path: "<absolute path to specs-27-migration skill>/actions/release-remote-download.ts",
+  args: { downloadHandle: "<downloadHandle from download result>" }
+})
 ```
 
-Leave the `.remoteReferenceAsset` stub in place; removing it is the user's call.
+If the Lens Studio session resets or the handle is unavailable before verification/upload, fail closed and re-download; do not claim the prior receipt path still exists. On a retry after a known successful release, `alreadyReleased: true` is safe. Leave the `.remoteReferenceAsset` stub in place; removing it is the user's call.
 
 ## Find Editor API types you'd want to cite
 

@@ -26,7 +26,15 @@ from .session_metadata import (
     socket_path,
     terminate_process,
 )
-from .target_discovery import discover_targets
+from .target_discovery import discover_targets, is_preview_panel
+
+# Appended to the no-match error so an agent asking for an MCP hidden preview by
+# name learns why it is absent instead of retrying.
+_HIDDEN_PREVIEW_NOT_A_TARGET = (
+    'hidden previews (e.g. the Lens Studio MCP tools\' default "Headless Preview") are not debug '
+    "targets; only visible Preview panels are — pick one and pass its title as previewName to the "
+    "MCP preview tools"
+)
 
 SPAWN_POLL_INTERVAL_MS = 200
 # Cold Lens Studio boots open the daemon socket only after the full CDP
@@ -54,6 +62,19 @@ class ResolveResult:
     # a bare plaintext message.
     error_code: str = ""
     targets: list[dict[str, Any]] = field(default_factory=list)
+    # Set on success when discovery saw the target. `preview_panel` is True for
+    # a visible Lens Studio Preview panel, whose title is also its MCP previewName.
+    target_title: str = ""
+    preview_panel: bool = False
+
+
+def _resolved(target: dict[str, Any]) -> ResolveResult:
+    return ResolveResult(
+        target_id=target.get("id", "") or "",
+        error="",
+        target_title=target.get("title", "") or "",
+        preview_panel=is_preview_panel(target),
+    )
 
 
 def resolve_target_id(
@@ -68,12 +89,11 @@ def resolve_target_id(
         if discovery.ok and discovery.targets:
             for t in discovery.targets:
                 if (t.get("id") or "") == target_id:
-                    return ResolveResult(target_id=target_id, error="")
+                    return _resolved(t)
             title_matches = [t for t in discovery.targets if (t.get("title") or "") == target_id]
             if len(title_matches) == 1:
-                tid = title_matches[0].get("id", "") or ""
-                if tid:
-                    return ResolveResult(target_id=tid, error="")
+                if title_matches[0].get("id"):
+                    return _resolved(title_matches[0])
             if len(title_matches) > 1:
                 available = [t.get("title", "") for t in discovery.targets]
                 return ResolveResult(
@@ -88,7 +108,10 @@ def resolve_target_id(
             available = [t.get("title", "") for t in discovery.targets]
             return ResolveResult(
                 target_id="",
-                error=(f"no target with id-or-title {target_id!r}; available titles: {json.dumps(available)}"),
+                error=(
+                    f"no target with id-or-title {target_id!r}; available titles: {json.dumps(available)} "
+                    f"— {_HIDDEN_PREVIEW_NOT_A_TARGET}"
+                ),
             )
         return ResolveResult(target_id=target_id, error="")
 
@@ -112,10 +135,9 @@ def resolve_target_id(
             targets=targets,
         )
 
-    tid = discovery.targets[0].get("id", "") or ""
-    if not tid:
+    if not discovery.targets[0].get("id"):
         return ResolveResult(target_id="", error="target has no id field")
-    return ResolveResult(target_id=tid, error="")
+    return _resolved(discovery.targets[0])
 
 
 def _check_and_cleanup_session(

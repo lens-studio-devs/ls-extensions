@@ -23,16 +23,16 @@ SPDX-License-Identifier: Apache-2.0
 
 Four peer backends. Choose **per asset**, by what the asset needs — not by a fixed priority order. **This menu is the single source of backend selection: the build orchestrator and project-init defer here.**
 
-- **SPECS text-to-3D** — static textured props of any style: organic, realistic, stylized, cartoon, low-poly looks alike. Best texture fidelity of any backend; static only; jobs take minutes (async create → poll → download). Also does image→3D from a reference image.
+- **SPECS text-to-3D** — static textured props of any style: organic, realistic, stylized, cartoon, low-poly looks alike. Best texture fidelity of any backend; static only; jobs take minutes (async create → poll → download).
 - **FAST3D** — the `GenerateFast3DAssets` MCP tool. Static AI-generated props, faster and lower fidelity than SPECS. Synchronous call, no local dependencies.
 - **Code-authored MeshBuilder** — the `mesh-builder-scripting` skill. Articulated, animated, or parametric content: geometry, materials, animation, and behavior in one TypeScript artifact at zero pipeline latency. (A static prop being "stylized" does not route here — that's SPECS's domain; this backend earns its place through motion and parametrics, not as a latency dodge.) Honest ceiling: Lens Studio has no canvas textures — vertex colors / `ProceduralTextureProvider` only — so the realism ceiling is low. Articulated transform-animation of sub-meshes is where this wins; recommended path for anything that must move or articulate (creatures, mechanisms).
-- **Blender voxel** — `voxel_toolkit.py` (+ `anim_toolkit.py`). Blocky voxel aesthetic, and the ONLY path when a rigged GLB (skinned skeleton in the asset) is specifically required. Needs local Blender (`test -x /Applications/Blender.app/Contents/MacOS/Blender || which blender`); see the voxel section below.
+- **Blender voxel** — `voxel_toolkit.py` (+ `anim_toolkit.py`). Blocky voxel aesthetic, and the ONLY path when a rigged GLB (skinned skeleton in the asset) is specifically required. Needs local Blender (`command -v blender || test -x /Applications/Blender.app/Contents/MacOS/Blender || test -x /usr/bin/blender`); see the voxel section below.
 
 **Default for static assets: SPECS text-to-3D** — it is the quality bar; accept the minutes-long jobs. FAST3D instead is a **user-granted exception only**: the user asked, in so many words, for the *meshes themselves* to be fast or draft-quality. Never self-grant it. Not grants: "I want speed", mesh count, genre ("it's a game, not a photoreal showcase"), "simple props, good enough", a revision request ("make the barn redder" licenses a redder barn, not a backend switch), the skill's own regen retries, or project framing ("prototype" / "MVP" / "quick demo" describe the project, not the mesh pipeline). If the user didn't say it about the meshes, use SPECS — its quality knobs already serve draft-speed iteration without switching backend. When the exception applies, record the user's words that licensed it in the report fragment's `backend_reason` — sub-agent prose is never shown to the user, so a deviation declared only there is a silent swap. Anything that must move or articulate routes to code-authored MeshBuilder; blocky aesthetic or a rigged-GLB requirement routes to voxel.
 
-Both AI backends authenticate through the signed-in Lens Studio session (no API key), so both need the user signed in. Tool naming, deferred-schema loading, and ask/spawn semantics: see `lens-studio-field-notes` Hard Rule 2 / Cross-runtime orchestration.
+Both AI backends authenticate through the signed-in Lens Studio session (no API key), so both need the user signed in. **Signed out** (caller's `is_authorized` is `false` or `unknown`, or an AI call returns `NOT_SIGNED_IN` / `NO_API_ACCESS`): drop SPECS and FAST3D, record `backend_reason: signed_out` (or `no_api_access`), and report `status: ok` once the fallback asset exists — the auth statuses are not blockers under this rule. Outside `specs-build-experience`, choose per asset between MeshBuilder and voxel: MeshBuilder runs anywhere and suits simple, stylized, or moving shapes; voxel needs Blender and gives a blocky look or a rigged GLB. Pick whichever keeps the asset recognisable and closest to the theme; without Blender, use MeshBuilder. Inside `specs-build-experience`, the mesh step must leave a GLB at `Assets/GeneratedMeshes/<Name>.glb` and does not own scene or script writes: use voxel when Blender is installed, otherwise keep the proxy GLB as `backend: primitive`. Announce the switch and continue; never stop the build for sign-in. Tool naming, deferred-schema loading, and ask/spawn semantics: see `lens-studio-field-notes` Hard Rule 2 / Cross-runtime orchestration.
 
-**On failure.** A failed generation job must surface and be retried next turn — tool-missing is a retry gate, never a permanent fallback. Retrying on the SAME backend is the preferred recovery; switching backend after repeated failures is a decision to announce AND record (`backend_reason: specs_failure: <error>` or `specs_failure: SPECS_TIMEOUT`), never a silent swap. Auth/access failures (`NOT_SIGNED_IN`, `NO_API_ACCESS`) always stop so the user can fix sign-in — never switch backends around them. Silent degradation to primitives stays banned: deliberate code-authored geometry is first-class only when planned and declared up front, never an unannounced stand-in for a failed generation.
+**On failure.** A failed generation job must surface and be retried next turn — tool-missing is a retry gate, never a permanent fallback. Retrying on the SAME backend is the preferred recovery; switching backend after repeated failures is a decision to announce AND record (`backend_reason: specs_failure: <error>` or `specs_failure: SPECS_TIMEOUT`), never a silent swap. Auth/access failures (`NOT_SIGNED_IN`, `NO_API_ACCESS`) follow the **Signed out** rule above. Silent degradation to primitives stays banned: deliberate code-authored geometry is first-class only when planned and declared up front, never an unannounced stand-in for a failed generation.
 
 ## Per-mesh output contract
 
@@ -47,14 +47,15 @@ Every successful GLB invocation produces:
 ```
 
 - A report fragment: `{ name, path, status, backend, backend_reason, aabb_cm, aabb_center_offset_cm, aabb_min_cm, forward_axis, upright, completeness, grounded, animation_available, normalized, size_warning }`
-  - `status` — `ok`, or a blocker: `GLB_MISSING`, `NOT_SIGNED_IN`, `NO_API_ACCESS`, `SPECS_TIMEOUT`.
-  - `backend` — `specs` | `fast3d` | `voxel`. (MeshBuilder output follows `mesh-builder-scripting`'s own contract.)
-  - `backend_reason` — REQUIRED whenever `backend` ≠ `specs`: what licensed the choice — the user's words for the FAST3D speed exception, `specs_failure: <error>` for an announced failure-driven switch, `image_embed_over_cap` / `image_413` for the image→3D reroute, the need (`animated/articulated`, `rigged GLB required`) or the user's ask (`blocky aesthetic requested`) for the other backends. Omit when `backend: specs`.
+  - `status` — `ok`, or a blocker: `GLB_MISSING`, `NOT_SIGNED_IN`, `NO_API_ACCESS`, `SPECS_TIMEOUT`. `NOT_SIGNED_IN` / `NO_API_ACCESS` are blockers only when the **Signed out** fallback itself could not produce an asset.
+  - `backend` — `specs` | `fast3d` | `voxel` | `primitive` (signed-out proxy kept, `specs-build-experience` only). (MeshBuilder output follows `mesh-builder-scripting`'s own contract.)
+  - `backend_reason` — REQUIRED whenever `backend` ≠ `specs`: what licensed the choice — the user's words for the FAST3D speed exception, `specs_failure: <error>` for an announced failure-driven switch, `signed_out` / `no_api_access` for the Signed out rule, the need (`animated/articulated`, `rigged GLB required`) or the user's ask (`blocky aesthetic requested`) for the other backends. Omit when `backend: specs`.
   - `normalized: true` iff `target_size_cm` was passed and the GLB was rewritten by `normalize_glb.js`.
   - `size_warning: true` iff `target_size_cm` was NOT passed and `max(aabb_cm) > 60` (the AI backends generate at arbitrary scale).
   - `aabb_min_cm` — the min-corner offset from the origin (cm). Place the mesh at `(x, ground_y - aabb_min_cm.y, z)` for foot-on-floor without re-baking; or pass `ground_contact: yes` and place directly at `ground_y` (then `aabb_min_cm.y == 0`).
   - `forward_axis` — `-Z` | `+Z` | `+X` | `-X` | `unknown` | `n/a`. `upright` — `true` | `unknown`. `completeness` — `verified` | `suspect` | `unverified`. `grounded: true` iff re-seated to min-Y = 0. See the pose contract below.
   - `animation_available` — voxel backend only: `true` when a rigged clip was exported. The caller must not wire `playAnimation` / clip-trigger calls when `false`.
+  - `finalization_receipt` — emitted only for `async_stage=finalize_collected`, after this skill has run the post-processing and quality gates. Shape: `{ mesh_name, source: "service_collected", status: "ok" | "refinement_required", path }`. This is the orchestrator's evidence that the collected file went through `/build-mesh`; a service `READY` result or direct calls to the helper scripts are not a substitute.
 
 Verify before reporting success:
 
@@ -73,29 +74,45 @@ If missing or 0 bytes, return `status: GLB_MISSING`. Never report a mesh as crea
 
 **Bake facing exactly once.** The voxel template's `rot_180z` lands the raw mesh at net `+Z` (same as the AI backends) and the canonicalize `--yaw=180` carries it the rest of the way to `-Z` — don't add a second flip downstream or you'll send it back to facing the viewer. External meshes (user-imported GLB, asset-library pick) go through the same canonicalize loop on ingest: check the stamp with `analyze_glb.js --orient-meta` and treat an unstamped mesh as un-oriented.
 
+## Finalize a collected SPECS GLB
+
+For `async_stage=finalize_collected`, require `backend=specs`, an explicit `mesh_name`, and a non-empty service-collected `Assets/GeneratedMeshes/<Name>.glb`.
+
+Skip remote generation and download, then enter **Post-processing (SPECS + FAST3D output)** with `backend: specs` and run the existing quality gates and output contract unchanged. A successful result MUST include `finalization_receipt: { mesh_name: "<Name>", source: "service_collected", status: "ok", path: "Assets/GeneratedMeshes/<Name>.glb" }`. Where that path would regenerate for a rejected shape or incomplete subject, return `status: REFINEMENT_REQUIRED` plus the same receipt with `status: "refinement_required"`; never create, poll, download, or switch backend in this mode.
+
 ## SPECS text-to-3D pipeline
 
 The SPECS text-to-3D inference API, driven through `ExecuteEditorCode` + authorized HTTP — the credential comes from the signed-in Lens Studio session, so there is **no API key** to handle. Async: **create → poll → download → analyze**. Full request/response schema, status values, errors, and quality tiers: `references/text-to-3d-api.md`. Tools: `tools/text-to-3d-request.ts`, `tools/download-glb.js`.
 
-**Create.** Fill `tools/text-to-3d-request.ts`'s CONFIG block with `tools/make-eec-script.py` and pass the path it prints to `ExecuteEditorCode` as `path`. Never read the script to substitute values by hand, never hand-write the `const` lines, and never edit the file on disk — its body is ~5 KB of `any`-typed HTTP helpers you never need to see. Do **not** hand-roll a shortened request either: the Editor API types the HTTP `response` as `unknown`, so a bare `response.statusCode` / `response.body` fails strict-TS compile (`TS2339`) — those helpers exist precisely to avoid that.
+**Create.** Execute the pinned script by absolute path with this explicit shape, which requires `method`, `requestPath`, and a `body`:
 
-Write the request body to a JSON file with your editor tool — this keeps the prompt out of the shell entirely — then:
-
-```bash
-python3 "<skill-dir>/tools/make-eec-script.py" "<skill-dir>/tools/text-to-3d-request.ts" \
-  --set "METHOD=POST" --set "REQUEST_PATH=/v1/generations" --json "BODY=$BODY_JSON_FILE"
+```text
+ExecuteEditorCode({
+  path: "<absolute skill-dir>/tools/text-to-3d-request.ts",
+  args: {
+    method: "POST",
+    requestPath: "/v1/generations",
+    body: { prompt: "…" }
+  }
+})
 ```
 
-`BODY` holds `prompt`, plus `output_quality` / `preview_quality` / `reconstruction_quality` / `seed` / `style` / `negative_prompt` when set. Delete the printed file once the call returns.
+`body` holds `prompt`, plus `output_quality` / `preview_quality` / `reconstruction_quality` / `seed` / `style` / `negative_prompt` when set. Do **not** hand-roll a shortened request: the pinned body carries the auth classification and `unknown`-typed HTTP response handling required by the Editor API.
 
-Two reasons this goes through the helper rather than pasted `const` lines. **Prompts are free text and have to be encoded, not pasted** — a prompt as ordinary as `a "red" cube` produces invalid TypeScript, and a backslash silently changes meaning; the helper runs every value through `json.dumps`. **Every call gets its own temp file**, which matters here more than anywhere else in the skill: creates fan out up to 4 at a time (see the concurrency cap below), and a shared path would let one job's config overwrite another's between the write and the `ExecuteEditorCode` read — wrong job created or polled, silently.
-
-- Quality knobs map straight to BODY fields; omit them to let the server default to `balanced`. Any tier (`fast` / `balanced` / `high`) is accepted server-side — request `high` `preview_quality`/`reconstruction_quality` freely when you want max fidelity.
-- **Image→3D** (`reference_image` provided): SPECS is the default route, same as text. Base64-encode the image into a `data:` URL and pass it as `BODY.input_image_data_url` (with or without `prompt`). Keep it under the ~15 MB cap (downscale a large image first). Only two objective triggers reroute to FAST3D's image→3D (which takes the file path directly): the image still exceeds the cap after downscaling, or the API returns 413 — an announced switch recorded as `backend_reason: image_embed_over_cap` / `image_413`, never a silent reroute.
-- **Result:** `OK` → keep `data.job_id`. `ACTION_REQUIRED` → branch on the result's `reason`: `not_signed_in` / `no_auth_interface` / 401 → `status: NOT_SIGNED_IN`; `forbidden` / 403 → the account is signed in but lacks inference-API access → `status: NO_API_ACCESS` (do not tell the user to sign in again). Either way **stop** — auth/access failures never switch backends. `FAILED` → retry once if `retryable`, else handle per **On failure**.
+- Quality knobs map straight to request-body fields; omit them to let the server default to `balanced`. `output_quality` accepts `compact` / `balanced` / `standard`; `preview_quality` and `reconstruction_quality` accept `fast` / `balanced` / `high`.
+- **Result:** `OK` → keep `data.job_id`. `ACTION_REQUIRED` → apply the **Signed out** rule in the backend menu, branching on the result's `reason` for `backend_reason`: `not_signed_in` / `no_auth_interface` / 401 → `signed_out`; `forbidden` / 403 → `no_api_access` (the account is signed in but lacks inference-API access; do not tell the user to sign in again). `FAILED` → retry once if `retryable`, else handle per **On failure**.
 - **Don't hand-roll a sign-in probe.** `findInterface` by string name throws `InternalError: Object with 'interfaceId' expected`, and `require(...)` fails strict-TS in `ExecuteEditorCode` (`TS2591` — use `await import(...)`). The create result IS the authoritative auth signal; `text-to-3d-request.ts` already checks auth correctly.
 
-**Poll** (no streaming endpoint exists). Re-run the helper per poll — `--set "METHOD=GET" --set "REQUEST_PATH=/v1/generations/<job_id>"` — and pass the new path. The script body still never enters your context, and each poll gets its own temp file, so polling several jobs concurrently is safe. Read `data.status` and `data.progress.overall_percent`. **Wait ~30 s after the create before the first poll** — asset generation reliably takes at least 30 s, so earlier GETs just burn turns. Then poll every ~5 s (`sleep 5`-style waits) and interleave other independent work between polls.
+**Poll** (no streaming endpoint exists). Re-run the pinned script with a fresh invocation object; a GET still supplies the required ordinary empty body:
+
+```text
+ExecuteEditorCode({
+  path: "<absolute skill-dir>/tools/text-to-3d-request.ts",
+  args: { method: "GET", requestPath: "/v1/generations/<job_id>", body: {} }
+})
+```
+
+Read `data.status` and `data.progress.overall_percent`. **Wait ~30 s after the create before the first poll** — asset generation reliably takes at least 30 s, so earlier GETs just burn turns. Then poll every ~5 s (`sleep 5`-style waits) and interleave other independent work between polls.
 
 - `succeeded` → `data.asset_url` is set → download.
 - `failed` / `canceled` → classify `data.error_message` per the reference's Errors tables (most first-attempt failures are transient infra, not terminal): bad prompt → re-create with a tightened `prompt` / `negative_prompt`; transient server (dev-queue flush; 5xx) → re-create once on SPECS; these commonly succeed on the retry. Still failing → handle per **On failure**.
@@ -110,6 +127,21 @@ node <skill-tools-dir>/download-glb.js --url "<data.asset_url>" --out Assets/Gen
 **Never** `open` the `asset_url`, open it in a browser, or import it through an interactive Lens Studio file picker — those pop a macOS *Save* dialog. If `download-glb.js` reports HTTP 401/403 or the signed `asset_url` has expired (it lasts ~1 h), re-poll `GET /v1/generations/<job_id>` for a fresh `asset_url`, then re-download.
 
 **Analyze.** Run the shared post-processing below with `backend: specs`. Two SPECS carve-outs: (1) the FAST3D prompt Defaults are FAST3D-specific and do NOT apply — SPECS takes `prompt` plus the optional `style` / `negative_prompt` as given; (2) on a `suspect` shape or a fragment, regenerate the SPECS way — re-issue the create with a refined `prompt` / `negative_prompt` (name the missing parts, or discourage the flat/disc result via `negative_prompt`), max 2 regen retries.
+
+## Flat / low-relief assets — a shape convention that DOES apply to every backend (SPECS included)
+
+How an asset sits in the world is the **plan's** decision, carried on each mesh's `rest` field (`upright` | `flat_on_surface` | `wall_mounted` | `held`) — do not reverse-engineer it from dimensions. Read `rest` and shape the prompt to it. This applies to **every backend, SPECS included** — it is about the generated *shape*, not backdrop framing, so shape it into the positive prompt before the create call regardless of backend.
+
+- `rest: upright` / `held` (the default) → describe the freestanding form and append the all-angle isolation (Default 1 for FAST3D; the same framing helps SPECS imagine back/side silhouettes).
+- `rest: wall_mounted` → describe a flat front face meant to be seen head-on.
+- `rest: flat_on_surface` → the flat / low-relief rules below apply.
+
+**Fallback when `rest` is absent** (legacy plan): infer `flat_on_surface` only when the plan's `target_size_cm` has one axis much thinner than the other two (a flat slab — e.g. 8×1.7×7.6) or the description names a *mark / tile / inlay / decal / symbol / glyph / plaque / rune / board face*; otherwise treat as `upright`. An explicit `rest` from the plan always wins over this guess.
+
+**When `rest: flat_on_surface`:**
+- **Describe flatness positively, and name the silhouette:** `a single flat <shape>, thin low-relief tile lying flat face-up` — e.g. `a single flat X-shaped tile, thin low-relief, lying flat face-up`; for a ring, `a single flat donut/ring tile with a clear open hole through the centre, thin low-relief, lying flat face-up`. Naming the outline (an X, a ring with a hole, a letter) makes the model render the silhouette rather than a chunky solid.
+- **Do NOT append the freestanding isolation** (`single freestanding 3D asset, complete from every angle`). For a flat mark that phrasing is actively harmful: it tells the model to make a stand-alone all-angle object, which it satisfies by **standing the mark upright on a base plate / pedestal** — measured directly (both tic-tac-toe marks generated as vertical shapes on unwanted base plates and had to be re-rolled). Use `single flat asset lying flat` framing instead. Per Default 1, never negate `base` / `pedestal` / `stand` in `negativePrompt` — the noun leaks into positive conditioning; rely on the positive `flat / thin / low-relief / lying flat` language, which leaves no room for a pedestal.
+- **Orientation is a rotate, not a re-roll.** The thin axis is "up"; the mark lies in the ground plane. If a flat mark still generates standing on edge, that is a **deterministic post-gen fix** (`normalize_glb --rotate … --ground --mark-canonical`), not a regeneration. Regenerate (carve-out 2) **only** for structural defects a transform can't fix — an added base plate, a solid where a hole belongs, a chunky sculpture instead of a flat tile.
 
 ## FAST3D pipeline
 
@@ -168,13 +200,11 @@ GenerateFast3DAssets({
 
 **`assetDirectory` is relative to the project's `Assets/` folder, NOT the project root.** Passing `"Assets/GeneratedMeshes"` produces `Assets/Assets/GeneratedMeshes/` — a duplicated folder bug. The MCP tool's own default is `"GeneratedModels"` (no prefix); follow that convention. The on-disk file ends up at `<project>/Assets/GeneratedMeshes/<Name>.glb`, which is what every other path in this skill references.
 
-**If `reference_image` is provided** and the file exists, pass it; otherwise omit it (text-to-3D).
-
 **Edge case — wrong-subject drift.** When the model keeps producing a generic neighbor (e.g. asked for a tomato plant, getting a generic berry bush), the caller MAY pass an explicit `negativePrompt` naming the near-miss (`"berries, grapes, cherries, bush of berries"`) and add species-specific anatomy to `mesh_description` (`"tomato plant with central stem, branching stalks, ripe red tomato fruits as solid spheres, serrated tomato leaves"`). The Default 2 block still gets appended on top.
 
 The MCP tool writes the GLB into the project's `Assets/GeneratedMeshes/`. Error classes have different recovery rules:
 
-- **Auth errors are NOT transient.** If the call returns `401`, `unauthorized`, `not authorized`, mentions sign-in / auth / `IsAuthorized`, or otherwise looks like an authentication failure, do NOT retry. Surface `status: NOT_SIGNED_IN` and stop — auth state can change mid-build (user signs out, token expires), so defend in depth here even though sign-in was checked earlier.
+- **Auth errors are NOT transient.** If the call returns `401`, `unauthorized`, `not authorized`, mentions sign-in / auth / `IsAuthorized`, or otherwise looks like an authentication failure, do NOT retry. Apply the **Signed out** rule in the backend menu — auth state can change mid-build (user signs out, token expires), so defend in depth here even though sign-in was checked earlier.
 - **Transient errors** (network blip, server 5xx, single-turn tool error not matching the auth patterns) → retry once with the same args. On second failure, handle per **On failure** — surface it; any backend switch is announced, never silent.
 
 Then run the shared post-processing below with `backend: fast3d`.
@@ -202,6 +232,8 @@ This emits the two unified AABB lines, calculated from the GLB's accessor min/ma
       --ground                 # re-seat min-Y → 0 (foot-on-floor)
   ```
   `normalize_glb.js` rewrites POSITION accessor data (and translation components of node transforms) so the resulting AABB matches the target. Rotations are preserved. The output overwrites the input — same path, normalized. After normalization, re-parse the new AABB via `analyze_glb.js --aabb`.
+
+  **When a mesh needs BOTH a rotation and target sizing, do it in ONE invocation** — pass `--rotate`/`--yaw` and `--target`/`--max-dim` together (the tool scales in the authored, pre-rotation frame first, then bakes the rotation, so give `--target` dimensions in the **pre-rotation** frame). Do **not** run two passes ("rotate, then re-normalize to target"): a per-axis `--target` in the second pass scales the basis columns of the matrix the first pass rotated, which **shears** the geometry (a mark that comes back standing upright and is fixed this way arrives corrupted, forcing a full regeneration). The tool now refuses this — a per-axis `--target` on an already-rotated mesh exits with an error pointing back to the single-pass call — so if you hit it, re-run the rotation and target as one invocation on the original, un-rotated GLB rather than re-normalizing the rotated output.
 - If `target_size_cm` was NOT passed AND `max(aabb_cm) > 60` → set `size_warning: true` and WARN: the caller should pass `target_size_cm` so the GLB is normalized at the asset boundary, or accept the size and use the wrapper pattern (scaled visual child, unit-scale collider parent) — downstream `setLocalScale` is NOT a fix.
 - Otherwise → no normalization, no warning.
 
@@ -212,7 +244,7 @@ If `target_size_cm` was omitted but `ground_contact` resolves to yes, run `norma
 1. **Shape heuristic (always, no dependencies).** `node <skill-tools-dir>/analyze_glb.js <glb> --shape`. If it reports `flat=true` or `sliver=true` and the subject is NOT meant to be flat/thin (a coin, plate, blade, platform legitimately are), set `completeness: suspect` and regenerate once (FAST3D: with the Default 2 anti-flat block; SPECS: with a refined prompt).
 2. **Render + look (when Blender is reachable).** Geometry alone doesn't reveal which way a mesh faces, and heuristics ("longest ground axis is forward") misfire across object types — a car is longest front-to-back, a sofa side-to-side:
    ```bash
-   /Applications/Blender.app/Contents/MacOS/Blender --background --python <skill-tools-dir>/preview_glb.py -- Assets/GeneratedMeshes/<Name>.glb
+   "$(command -v blender || echo /Applications/Blender.app/Contents/MacOS/Blender)" --background --python <skill-tools-dir>/preview_glb.py -- Assets/GeneratedMeshes/<Name>.glb
    ```
    `Read` the front/side/¾ PNGs in `Assets/GeneratedMeshes/preview/` and confirm: (a) the **whole** subject is present — if a "spaceship" is just a cockpit, regenerate with explicit whole-object language (`"complete spaceship with fuselage, wings, and engines, full body"`); (b) which view is the **front**; (c) proportions match the description. Max 2 regen retries.
 3. **Bake + stamp.** Compute the yaw (or a full `--rotate=<rx,ry,rz>` if it imported on its side) that turns the front to `-Z`, then:
@@ -242,4 +274,4 @@ FAST3D has a server-side concurrency cap: run at most **4 simultaneous generatio
 
 $ARGUMENTS
 
-Resolve `mesh_name` if not provided — PascalCase from the description. Parse the flags after `|`: `backend=` (`specs` | `fast3d` | `meshbuilder` | `voxel` — a direct per-asset choice; omit to choose from the menu yourself), `target_size_cm=` (single number = uniform max-dimension cap, preserves proportions; `W,H,D` = per-axis — you almost always want to pass the caller's size estimate), `ground_contact=` (`yes` | `no` | `auto`), `reference_image=` (absolute path, routes to image→3D — SPECS by default), and the SPECS knobs (`output_quality`, `preview_quality`, `reconstruction_quality`, `seed`, `style`, `negative_prompt`). For `meshbuilder`, invoke the `mesh-builder-scripting` skill instead of producing a GLB. Otherwise run the matching pipeline and return the per-mesh output contract.
+Resolve `mesh_name` if not provided — PascalCase from the description. Parse the flags after `|`: `backend=` (`specs` | `fast3d` | `meshbuilder` | `voxel` — a direct per-asset choice; omit to choose from the menu yourself), `async_stage=` (only `finalize_collected`), `target_size_cm=` (single number = uniform max-dimension cap, preserves proportions; `W,H,D` = per-axis — you almost always want to pass the caller's size estimate), `ground_contact=` (`yes` | `no` | `auto`), and the SPECS knobs (`output_quality`, `preview_quality`, `reconstruction_quality`, `seed`, `style`, `negative_prompt`). Dispatch `finalize_collected` directly to its section above. For `meshbuilder`, invoke the `mesh-builder-scripting` skill instead of producing a GLB. Otherwise run the matching pipeline and return the per-mesh output contract.

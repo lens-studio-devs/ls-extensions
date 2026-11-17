@@ -177,7 +177,7 @@ content, while on device it waits for the real `onFound`.
 ## Content activation framework
 
 Separates *deciding when the user is present* from *what each piece of content does about it*
-(shipped by the official Custom Locations template):
+(shipped by the official Custom Locations template; in the 4.0 `CustomLocations` package the activator is named `ActivateWhenInCameraView` and the mesh hider `DeactivateLocationMeshOnDevice` — the reference scripts below keep the names `LocationActivator` / `HideLocationMeshOnDevice`):
 
 - **`LocatedObject`** — an interface with `localize()` / `activate()` / `deactivate()`.
 - **`LocationActivator`** — attach to the `LocatedAtComponent` node. It listens for `onFound`,
@@ -271,12 +271,16 @@ When users can't localize from certain angles, add viewpoints without rebuilding
 
 ## Multiplayer (Connected Lenses)
 
-Custom Locations combine with **SpectaclesSyncKit** for shared, colocated experiences pinned to a
+Custom Locations combine with **SyncKit** for shared, colocated experiences pinned to a
 real place. That integration is owned by the **`specs-sync-kit`** skill — load it for the full setup.
 Key differences to know up front:
 
-- Place the **`Location` asset** on the **`Colocated World`** SceneObject's `LocatedAtComponent`
-  (not a standalone Custom Location node); synced content lives under `Colocated World`.
+- Place the **`Location` asset** on the `LocatedAtComponent` of the SyncKit prefab's
+  **`ColocatedWorld [CONFIGURE_ME]`** SceneObject (not a standalone Custom Location node); synced
+  content lives under `ColocatedWorld [CONFIGURE_ME] / EnableOnReady`.
+- `SessionController [CONFIGURE_ME]` → **Skip Custom Landmark In Lens Studio** (on by default) makes
+  SyncKit's session flow treat the location as found in the editor. It does not fire
+  `LocatedAtComponent.onFound`, so your own `onFound`-gated content still needs the `isEditor()` branch.
 - The Connected-Lens origin is the scan's mapped origin, not the device — add the **Location Mesh
   + Location Material** render setup (see *Show the scanned mesh*) kept at transform (0, 0, 0) to
   position content accurately.

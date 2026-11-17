@@ -57,15 +57,14 @@ this.hitTestSession.hitTest(rayStart, rayEnd, (result) => {
 })
 ```
 
-### Typical hit test using SIK targeting interactor (Specs)
+### Typical hit test using IK targeting interactor (Specs)
 
 ```typescript
-import { InteractorInputType } from 'SpectaclesInteractionKit.lspkg/Core/Interactor/Interactor'
-import { SIK } from 'SpectaclesInteractionKit.lspkg/SIK'
+import { IK } from 'InteractionKit.lspkg/IK'
 
 this.createEvent('UpdateEvent').bind(() => {
   // Get the currently active targeting interactor (the hand pointing at something)
-  const primaryInteractor = SIK.InteractionManager
+  const primaryInteractor = IK.InteractionManager
     .getTargetingInteractors()
     .shift()
 

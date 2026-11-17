@@ -65,7 +65,7 @@ Before migrating script code:
 
 > **Agent note:** Users do not have direct access to this reference file. When you reach this step, **copy and display the full SQL block below to the user** with clear instructions to run it in their Snap Cloud Dashboard → SQL Editor. Do not assume they have already seen or run it.
 
-Run the following SQL in your **Snap Cloud Dashboard → SQL Editor** (or via `supabase db push` with a migration file):
+Apply the following SQL. Pick the path per the `specs-snap-cloud` **Backend operations: MCP first, CLI fallback** section: if the Supabase MCP server is connected in write mode, `apply_migration` applies it directly (confirm it's a dev/test project first); otherwise use `supabase db push` with a migration file, or paste it into the **Snap Cloud Dashboard → SQL Editor**. Either way, verify afterward with `list_tables` (or `supabase migration list`):
 
 ```sql
 -- Leaderboard table
@@ -128,7 +128,7 @@ $$;
 
 ### Step 1: Add required scripts to Assets/Scripts/
 
-These four scripts are available as reference implementations at `../../specs-snap-cloud/resources/scripts/`. Copy them into your project's `Assets/Scripts/`, or install them from the Asset Library → **SnapCloudExamples** (`Example6-GlobalLeaderboard/Scripts/`):
+These four scripts are available as reference implementations at `../../specs-snap-cloud/references/scripts/`. Copy them into your project's `Assets/Scripts/`, or install them from the Asset Library → **SnapCloudExamples** (`Example6-GlobalLeaderboard/Scripts/`):
 
 - `SupabaseLeaderboardService.ts`
 - `GlobalLeaderboard.ts`

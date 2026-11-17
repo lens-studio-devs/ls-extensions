@@ -166,6 +166,33 @@ A `ScriptAsset` surfaces two documentation slots in the Inspector:
 
 The `NativePackageDescriptor` also has its own `readMe` slot that's shown on the package itself. Usually you point script and descriptor at the **same** `.md`.
 
+For an agent-facing package, keep `README.md`, small `AGENTS.md` and
+`CLAUDE.md` entrypoints, and `Docs/` as real files inside the editable package
+folder. Assign README to `NativePackageDescriptor.readMe`. Do not also put
+these files in the descriptor's `attachments`: attachments pull selected
+assets from outside the package content tree into an export and are redundant
+for content already beneath the editable package folder.
+
+For packages intended for agent use, the descriptor README is also the
+version-aligned machine guidance. Follow
+`docs/package-owned-agent-documentation.md` from the ls-extensions repository.
+Write the README as a single document for both people and agents — no extraction
+markers and no agent-only section — covering package identity, version and API
+status, applicability, imports and entry points, related CLAD skills (link them
+and say where to get CLAD for readers who lack it), supported workflows, API
+reference, examples, known limitations, and verification. Because the README is
+readable pre-import (via `ListInstalledPackagesTool`) while `Docs/` becomes
+readable from the install Cache that Lens Studio auto-populates on import, make
+the README's API reference an index into the package's `.d.ts`/API-surface source
+and `Docs/`, not a re-transcription.
+
+Keep those headings recognizable. Ensure every API, lifecycle rule, workaround,
+and example matches the same package revision that ships the README. Keep the
+README scannable; put larger topics in focused relative links under `Docs/`,
+including `api-status.md` for Current, Deprecated, Experimental, Removed, and
+Internal surfaces. Do not point the descriptor at unversioned skill
+documentation or repeat generic Lens Studio guidance owned by a skill.
+
 `MarkdownAsset` and script assets are NOT creatable via `AssetManager.createNativeAsset(...)` (it will reject them as "not NativeAsset"). Write the file to disk and let LS auto-import it.
 
 ```javascript
@@ -202,6 +229,14 @@ model.project.save();
 ```
 
 If the source files live outside the project, `am.importExternalFileAsync(absSrc, destSourcePath)` with `destSourcePath` pointed at the package folder achieves the same result.
+
+After export, confirm the `.lspkg` matches the editable source before
+publishing: the root entrypoints are present, relative Markdown links resolve,
+and the packaged Markdown and scripts match what you authored. If anything
+drifted, fix the editable package and re-run `exportPackage` — never repair the
+`.lspkg` with zip tooling. The deterministic form of this check (required-file
+manifest, byte-compare, provenance hashes) is enforcement that belongs in the
+package-docs guardrails work, not in this content skill.
 
 ### File-type mapping
 

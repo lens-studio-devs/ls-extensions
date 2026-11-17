@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "specsndk.schema.json",
+  "description": "Contracts for tools/specsndk.py: the public release manifest it reads and the JSON results it prints.",
+  "$defs": {
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+(\\.[0-9]+)*$"
+    },
+    "nullableString": {
+      "anyOf": [{ "type": "string" }, { "type": "null" }]
+    },
+    "download": {
+      "description": "One platform's archive. Extra fields are ignored.",
+      "type": "object",
+      "required": ["url", "sizeBytes"],
+      "properties": {
+        "url": { "type": "string", "pattern": "^(https|file)://" },
+        "sizeBytes": { "type": "integer", "minimum": 1 },
+        "filename": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "manifest": {
+      "description": "specsndk-latest.json version manifest; it points at archives hosted elsewhere. Open objects so the publisher can add fields.",
+      "type": "object",
+      "required": ["schemaVersion", "latest"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "latest": {
+          "type": "object",
+          "required": ["version", "downloads"],
+          "properties": {
+            "version": { "$ref": "#/$defs/version" },
+            "minOsVersion": { "type": "string" },
+            "releaseDate": { "type": "string" },
+            "downloads": {
+              "type": "object",
+              "properties": {
+                "darwin": { "$ref": "#/$defs/download" },
+                "windows": { "$ref": "#/$defs/download" }
+              },
+              "additionalProperties": true
+            }
+          },
+          "additionalProperties": true
+        },
+        "versionSources": {
+          "type": "object",
+          "required": ["file", "key"],
+          "properties": {
+            "file": {
+              "description": "Relative path inside the SDK; no absolute paths, drive letters, or '..'.",
+              "type": "string",
+              "pattern": "^(?![/\\\\])(?!.*\\.\\.)[^:]+$"
+            },
+            "key": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "checkResult": {
+      "type": "object",
+      "required": [
+        "ok", "status", "root", "platform", "installedVersion", "latestVersion",
+        "releaseDate", "minOsVersion", "downloadBytes", "cmake", "manifestError"
+      ],
+      "properties": {
+        "ok": { "const": true },
+        "status": { "enum": ["missing", "outdated", "unversioned", "current", "newer", "unknown"] },
+        "root": { "type": "string" },
+        "platform": { "enum": ["darwin", "windows"] },
+        "installedVersion": { "$ref": "#/$defs/nullableString" },
+        "latestVersion": { "anyOf": [{ "$ref": "#/$defs/version" }, { "type": "null" }] },
+        "releaseDate": { "$ref": "#/$defs/nullableString" },
+        "minOsVersion": { "$ref": "#/$defs/nullableString" },
+        "downloadBytes": { "anyOf": [{ "type": "integer" }, { "type": "null" }] },
+        "cmake": {
+          "type": "object",
+          "required": ["found", "version"],
+          "properties": {
+            "found": { "type": "boolean" },
+            "version": { "$ref": "#/$defs/nullableString" }
+          },
+          "additionalProperties": false
+        },
+        "manifestError": { "$ref": "#/$defs/nullableString" }
+      },
+      "additionalProperties": false
+    },
+    "installResult": {
+      "type": "object",
+      "required": ["ok", "root", "installedVersion", "previousVersion", "backupPath"],
+      "properties": {
+        "ok": { "const": true },
+        "root": { "type": "string" },
+        "installedVersion": { "$ref": "#/$defs/version" },
+        "previousVersion": { "$ref": "#/$defs/nullableString" },
+        "backupPath": { "$ref": "#/$defs/nullableString" }
+      },
+      "additionalProperties": false
+    },
+    "errorResult": {
+      "type": "object",
+      "required": ["ok", "error"],
+      "properties": {
+        "ok": { "const": false },
+        "error": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

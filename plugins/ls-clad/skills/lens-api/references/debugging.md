@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # Lens Studio TypeScript — Scripting Debug
 
-General script-side debugging that applies to **any** Lens target. For Specs-subsystem bugs (SIK, RSG, SyncKit, SnapML), see `ls-clad:specs-debug`. For reading log output, see `ls-clad:lens-log-analysis`. For performance work, see `references/performance.md`.
+General script-side debugging that applies to **any** Lens target. For Specs-subsystem bugs (IK, RSG, SyncKit, SnapML), see `ls-clad:specs-debug`. For reading log output, see `ls-clad:lens-log-analysis`. For performance work, see `references/performance.md`.
 
 ## Compile-time TypeScript errors
 
@@ -142,4 +142,4 @@ Arrow callbacks bound inline cannot be removed — keep a named reference if you
 - `ls-clad:lens-log-analysis` — reading and analyzing `console.*` output (severity prefixes, partitioning)
 - `references/performance.md` — frame-rate drops, allocations, profiling
 - `references/component-access-patterns.md` — TS-to-TS, TS-to-JS, `@typename` patterns
-- `ls-clad:specs-debug` — SIK / RSG / SyncKit / SnapML subsystem debugging
+- `ls-clad:specs-debug` — IK / RSG / SyncKit / SnapML subsystem debugging

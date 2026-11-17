@@ -25,7 +25,7 @@ Use this skill when the user wants to **write LEAF tests** or **create test scen
 ## Phase 1 — Framework setup (always first)
 
 1. Read the [LEAF Reference](references/leaf-reference.md) for API reference, assertion matchers, and common pitfalls.
-2. Run the **`ls-clad:specs-leaf-install-packages`** skill to verify the LEAF package is present, install it if missing, and confirm SIK version compatibility.
+2. Run the **`ls-clad:specs-leaf-install-packages`** skill to verify the LEAF package is present, install it if missing, and confirm InteractionKit version compatibility.
 3. Search the project for existing `LeafIndex` files (`scenariosIndex`) and scenario classes (`extends Scenario`).
 
 ## Phase 2 — Scene exploration (Lens Studio tools)
@@ -46,9 +46,9 @@ Summarize as a table: `object_name | component | property | expected_value`.
 Read the [LEAF Reference](references/leaf-reference.md) for templates, import paths, interactor selection, and the authoring checklist.
 
 1. Write scenario files directly using the templates from the LEAF Reference. Use **exact** names from Phase 2 for scene objects and interactables; fill `expect()` only with **observed** values — never guess.
-2. Choose the correct interactor type per the LEAF Reference's "Choosing an interactor" section (`DefaultLeafInteractor`, `LeafHandInteractor`, or the IK interactor). **Always obtain hands via the shared accessors** `LeafHandInteractor.get("left")` / `LeafHandInteractor.get("right")` — including two-hand flows, where you drive both hands concurrently with `Promise.all`.
-3. **Add IK coverage for reach-sensitive UI.** Add at least one scenario using `createIKInteractor()` for any reach-sensitive UI — it doubles as a reachability check; a `trigger` that fails to converge or routes far-field is a real finding, not a test bug (see the IK Interactor section of the LEAF Reference). For two-hand scale coverage, drive both hands concurrently via `LeafHandInteractor.get("left")` / `LeafHandInteractor.get("right")`.
-4. Write or update `LeafIndex.ts` to import and register all scenarios with `@scenariosIndex`.
+2. Choose the correct interactor type per the LEAF Reference's "Choosing an interactor" section (`DefaultLeafInteractor`, `LeafHandInteractor`, or the inverse-kinematics interactor). **Always obtain hands via the shared accessors** `LeafHandInteractor.get("left")` / `LeafHandInteractor.get("right")` — including two-hand flows, where you drive both hands concurrently with `Promise.all`.
+3. **Add inverse-kinematics coverage for reach-sensitive UI.** Add at least one scenario using `createIKInteractor()` for any reach-sensitive UI — it doubles as a reachability check; a `trigger` that fails to converge or routes far-field is a real finding, not a test bug (see the IK Interactor section of the LEAF Reference). For two-hand scale coverage, drive both hands concurrently via `LeafHandInteractor.get("left")` / `LeafHandInteractor.get("right")`.
+4. Write or update `LeafIndex.ts` to import and register all scenarios with `@scenariosIndex` — see the LEAF Reference's LeafIndex Wiring section.
 
 ### Scenario rules
 
@@ -56,7 +56,7 @@ Key authoring guidelines:
 
 - One scenario per focused interaction flow.
 - Cover: the primary interaction loop, state changes visible in the HUD, and any error/guard paths.
-- **Add IK reachability coverage** for any reach-sensitive UI — see Phase 3 step 3 for the full guidance.
+- **Add inverse-kinematics reachability coverage** for any reach-sensitive UI — see Phase 3 step 3 for the full guidance.
 - **Use relative/delta assertions** for any numeric or stateful value (coins, scores, counts). Read the value before the interaction, then assert the expected change — not an absolute final value. Scenarios share Lens state.
 - **Never invent scene object names.** Every `findSceneObjectByName("X")` and `findInteractablesByName("X")` must use a name confirmed in Phase 2. If you write a name you didn't verify, you are guessing — and the test will fail.
 
@@ -73,7 +73,7 @@ Use scene graph and asset query tools:
 ## Rules
 
 - See Scenario rules above for the authoritative assertions, object-name, and delta-check constraints.
-- Do **not** overwrite or downgrade the LEAF package or SIK unless the user explicitly asks.
+- Do **not** overwrite or downgrade the LEAF package or InteractionKit unless the user explicitly asks.
 - Do **not** modify the user's Lens code to make tests work. If a test can't find an object or interactable, fix the test's lookup strategy — don't rename objects in the Lens.
 
 ## References

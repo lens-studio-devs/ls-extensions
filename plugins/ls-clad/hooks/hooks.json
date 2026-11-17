@@ -1,9 +1,9 @@
 {
-  "description": "Lens Studio MCP liveness gate (cross-platform): before any mcp__lens-studio__* call, probe the lens-studio endpoint from .mcp.json and, if unreachable (Lens Studio crashed/quit), deny the call and halt the turn. macOS/Linux via bash /dev/tcp; Windows via PowerShell TcpClient. Dependency-free; fails open where neither shell is available.",
+  "description": "Lens Studio MCP liveness gate (cross-platform): before any Lens Studio MCP call, probe the lens-studio endpoint from .mcp.json and, if unreachable (Lens Studio crashed/quit), deny the call and halt the turn. macOS/Linux via bash /dev/tcp; Windows via PowerShell TcpClient. Dependency-free; fails open where neither shell is available.",
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "mcp__lens-studio__.*",
+        "matcher": "^mcp__lens[-_]studio__.*$",
         "hooks": [
           {
             "type": "command",

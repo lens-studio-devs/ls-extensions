@@ -1,6 +1,6 @@
 ---
 name: specs-ai-remote-service
-description: Integrate AI APIs (Gemini Live, OpenAI Realtime, DALL-E, Snap3D) using the Remote Service Gateway (RSG) package in Specs. Load when implementing AI chat, voice, vision, image generation, or function calling features.
+description: Integrate AI APIs (Gemini Live, OpenAI Realtime, GPT Image / Gemini image generation, Snap3D) using the Remote Service Gateway (RSG) package in Specs. Load when implementing AI chat, voice, vision, image generation, or function calling features.
 user-invocable: false
 ---
 <!--
@@ -14,23 +14,22 @@ Reference implementations: `AI Playground/`, `AI Music Gen/`, `Agentic Playgroun
 
 ## Gemini Model IDs (via RSG)
 
-Do NOT guess Gemini model names — many `-exp` / `-preview` IDs return 404 through RSG's Vertex backend. Known-good IDs as of 2026:
-- Text/multimodal chat: `gemini-2.0-flash`, `gemini-2.5-flash`, `gemini-2.5-pro`
-- Image generation: use the **Imagen** endpoint ONLY. Call `Gemini.generateImage({ model: 'imagen-3.0-generate-002', prompt })`. The following IDs WILL 404 through RSG and must NEVER be used for image generation: `gemini-2.0-flash-exp`, `gemini-2.5-flash-image-preview`, `gemini-2.0-flash-image-preview`, any `gemini-*-image-*` variant. If you see a 404 with `Publisher Model ... was not found` (e.g. `projects/[PROJECT]/locations/global/publishers/google/models/gemini-2.0-flash-exp` or `.../gemini-2.5-flash-image-preview`), the fix is to switch to `Gemini.generateImage({ model: 'imagen-3.0-generate-002', prompt })` via the Imagen endpoint — do NOT retry with another `gemini-*-image-*` ID, they all 404 through RSG.
+Use these Gemini model IDs (the ones the RSG 4.0.0 examples use) — guessed `-exp` / `-preview` IDs return 404 through RSG's Vertex backend:
+- Text/multimodal chat: `gemini-2.5-flash` (`ExampleGeminiCalls`)
+- Image generation: `gemini-3.1-flash-image` or `gemini-3.1-flash-lite-image`, through `Imagen.generateContent({ model, type: "generateContent", body })` (the RSG "imagen" route) or `Gemini.models(...)` with `generationConfig.responseModalities: ["TEXT", "IMAGE"]`; the image comes back as an `inlineData` part in `candidates[0].content.parts`.
+- Gemini Live: `models/gemini-live-2.5-flash` (`ExampleGeminiLive`).
 
-Before picking a model, grep `RemoteServiceGateway.lspkg/HostedExternal/Gemini.ts` for the exact endpoint paths and supported model strings rather than assuming.
+Use only the model IDs listed in this skill. For any other model, grep the installed RemoteServiceGateway package's `HostedExternal/GoogleGenAITypes.ts` and `HostedExternal/Examples/` scripts for the exact string before using it.
 
 Package path: `RemoteServiceGateway.lspkg/`
 
-## Required RSG Version: 0.2.0+
+## Required RSG Version: 4.0.0 (Lens Studio 5.25+)
 
-**Only install RSG version `0.2.0` or higher.** Older versions (pre-0.2.0) lack the `RemoteServiceGatewayToken` plugin, have a different `RemoteServiceGatewayCredentials` schema, and break the zero-friction auth flow described below. The agent must:
+Use the RSG `4.0.0` package that matches Lens Studio 5.25. The agent must:
 
-1. **Before installing**: when calling `SearchLensStudioAssetLibrary` / `InstallLensStudioPackage`, explicitly select the `RemoteServiceGateway` package version `>= 0.2.0`. Never accept the first hit blindly — verify the version field.
-2. **If RSG is already installed**: read `RemoteServiceGateway.lspkg/package.json` (or the package manifest) and check `version`. If it is below `0.2.0`, tell the user to upgrade via the Asset Library before proceeding — do NOT try to patch around an old version.
-3. **Detection signal**: the presence of `RemoteServiceGateway.lspkg/Plugins/.../RemoteServiceGatewayToken/` is a strong indicator of 0.2.0+. If that folder is missing, treat the package as outdated.
-
-A pre-0.2.0 RSG will silently fail token wiring (different `@input` field names, no token plugin, no `Network.performAuthorizedHttpRequest` permission propagation). Do not try to make it work — upgrade first.
+1. **Before installing**: when calling `SearchLensStudioAssetLibrary` / `InstallLensStudioPackage`, select the `RemoteServiceGateway` package for your Lens Studio version. Never accept the first hit blindly — verify the version field.
+2. **If RSG is already installed**: read its version from `package.native` at the package root (the package has no `package.json`; `package.native` records the package version and the Lens Studio `StudioVersion`). If the installed package is older than 4.0.0, tell the user to upgrade via the Asset Library before proceeding — do NOT try to patch around an old version.
+3. **Chat models**: use OpenAI or Gemini. The Snap token is for Snap3D. `RemoteServiceGatewayCredentials.setApiToken` stores the Snap, OpenAI and Google tokens.
 
 ### Recompile gotcha
 
@@ -49,12 +48,12 @@ A pre-0.2.0 RSG will silently fail token wiring (different `@input` field names,
 | AI assistant scripts should build their own UI via code (e.g., `buildUI()`) | No scene dependencies to wire manually |
 | Do not expose `@input` fields for scene object references that can be created at runtime | Reduces inspector friction |
 | `@input` fields are acceptable for **authoring-time configuration** only — system prompt, model name, feature flags | These are genuine per-instance settings |
-| `RemoteServiceGatewayCredentials` is always wired by the agent (via `ExecuteEditorCode`), never by the user | Token setup must be zero-friction |
+| `RemoteServiceGatewayCredentials` is wired by the token action only after it returns `TOKENS_ASSIGNED` | Never claim credentials are wired after an unverified fallback |
 | Token generation covers **all three providers** (SNAP, OPENAI, GOOGLE) in one `ExecuteEditorCode` call | Avoids partial setup that causes confusing silent failures |
 
 ### Canonical single-script pattern (`AIAssistant`)
 
-The `AIAssistant` + `AIAssistantUI` pair in `resources/scripts/scene-scripts/` is the canonical example. **When building a new AI assistant, copy these files into the user's project** (e.g. `Assets/Scripts/`) rather than writing them from scratch:
+The `AIAssistant` + `AIAssistantUI` pair in `references/scripts/scene-scripts/` is the canonical example. **When building a new AI assistant, copy these files into the user's project** (e.g. `Assets/Scripts/`) rather than writing them from scratch:
 
 - **`AIAssistant.ts`** — self-contained: initializes ASR, handles hold-to-talk, calls `OpenAI.chatCompletions` via RSG, manages multi-turn history. Only `@input` fields are authoring settings (system prompt, model, feature flags).
 - **`AIAssistantUI.ts`** — pure builder module, no `@component`, no `@input`. Exports `buildUI(script, parent) → UIElements`. Called from `AIAssistant.onStart()`. Creates transcript panel + button imperatively.
@@ -65,13 +64,13 @@ This approach produces **one script in the Inspector** with no wiring required. 
 
 When a generated image renders black/washed-out/semi-transparent, see the **SUIK Image Display Gotchas** section below for the full fix (reset `baseColor` to opaque white, bump `renderOrder`, disable transparency).
 
-**CRITICAL: Copying `.ts` files into Assets is NOT enough — the script will never run until a SceneObject exists with the ScriptComponent attached.** Immediately after writing the files, use `ExecuteEditorCode` to create the SceneObject hierarchy and call `sceneObject.createComponent('ScriptComponent')` with the asset reference. A scene with only the three default root objects (Camera, Lighting, SIK) and script files in Assets is broken — no AI functionality will be present. **Always verify the scene hierarchy after setup:** use `ExecuteEditorCode` to walk the scene tree and confirm the ScriptComponent exists before telling the user to test.
+**CRITICAL: Copying `.ts` files into Assets is NOT enough — the script will never run until a SceneObject exists with the ScriptComponent attached.** Immediately after writing the files, use `ExecuteEditorCode` to create the SceneObject hierarchy and call `sceneObject.createComponent('ScriptComponent')` with the asset reference. A scene with only the three default root objects (Camera, Lighting, InteractionKit) and script files in Assets is broken — no AI functionality will be present. **Always verify the scene hierarchy after setup:** use `ExecuteEditorCode` to walk the scene tree and confirm the ScriptComponent exists before telling the user to test.
 
 ---
 
 ## Scene Hierarchy Blueprint
 
-**IMPORTANT: Importing `RemoteServiceGateway.lspkg` automatically adds a `RemoteServiceGatewayExamples` prefab to the scene.** This prefab already contains the `Requirements` hierarchy (`RemoteServiceGatewayCredentials`, `Websocket requirements`, `MicrophoneRecorder`, `DynamicAudioOutput`). Do NOT recreate this infrastructure. Instead: (1) check if `RemoteServiceGatewayExamples` exists in the scene, (2) if yes, reuse its `RemoteServiceGatewayCredentials` component for token wiring and build your `Examples` SceneObject alongside it, (3) if no, build the full hierarchy from scratch as shown below.
+**IMPORTANT: RSG 4.0.0 ships a demo prefab at the package root, `RemoteServiceGateway__PLACE_IN_SCENE.prefab`, that is dragged into the scene (it is not added automatically).** If it is in the scene, it already contains a `RemoteServiceGatewayCredentials` object (direct child of the prefab root) and `External Hosted Examples/Websocket requirements` (with `MicrophoneRecorder` and `DynamicAudioOutput`); there is no `Requirements` parent in it. Never duplicate the credentials component: the bootstrap action (see *One-time Requirements bootstrap*) reuses the prefab's `RemoteServiceGatewayCredentials` and `Websocket requirements` when present and builds the hierarchy below only when they are absent. Build your `Examples` SceneObject alongside whichever hierarchy the scene has.
 
 **Which hierarchy you need depends on the AI pattern:**
 - **Chat Completions + ASR (`AIAssistant`)**: needs `RemoteServiceGatewayCredentials` **and** a `MicrophoneRecorder` (the `LensStudio:AsrModule` consumes the mic stream to produce transcription via `AsrModule.TranscriptionUpdateEvent`). Does NOT need `Websocket requirements` or `DynamicAudioOutput` (TTS playback uses a standard `AudioComponent` with the OpenAI TTS response). Canonical ASR wiring: `const asrModule = require('LensStudio:AsrModule')`, subscribe to `onTranscriptionUpdate` / `onTranscriptionError`, and start/stop transcription on hold-to-talk button events. **SUIK Button hold events are `onTriggerDown` / `onTriggerUp`** — `onTriggerStart` / `onTriggerEnd` do NOT exist and will silently no-op (no compile error, no transcription). Also note: `createCameraRequest` and ASR session setup must NOT be called from `onAwake` — wire them in `OnStartEvent`. ASR runs on-device only, not in Lens Studio Preview.
@@ -80,7 +79,7 @@ When a generated image renders black/washed-out/semi-transparent, see the **SUIK
 ```
 Camera Object
 Lighting
-SpectaclesInteractionKit          ← SIK prefab (required)
+InteractionKit          ← InteractionKit prefab (`InteractionKit.lspkg/Prefabs/InteractionKit.prefab`, required)
 Requirements                      ← empty SceneObject, groups infrastructure
 ├── RemoteServiceGatewayCredentials [EDIT ME]   ← RSG credentials component lives here
 │   └── Websocket requirements    ← DISABLED by default; assistant enables on session start
@@ -114,13 +113,13 @@ GUIDE_ReadAndDisable              ← guide text, disable before shipping
 
 ---
 
-## Zero-Friction Authentication (LS 22+)
+## Zero-Friction Authentication
 
-**Do not ask users to paste tokens manually.** In Lens Studio 22+, the RSG package ships with a `RemoteServiceGatewayToken` plugin that generates all three provider tokens automatically using the user's existing Snapchat login — no API keys, no copy-paste, no friction.
+**Prefer the programmatic token action; do not ask users to paste tokens when it returns `TOKENS_ASSIGNED`.** The `RemoteServiceGatewayToken` editor plugin (menu **Window → Remote Service Gateway Token**) generates all three provider tokens using the user's existing Snapchat login; the token action below calls the same endpoint directly, so it does not depend on the plugin being installed. The UI exception is explicitly limited to the `ACTION_REQUIRED` fallback below.
 
-### MANDATORY: Agent must self-generate tokens when the plugin is present
+### MANDATORY: Agent must self-generate tokens
 
-**If `RemoteServiceGatewayToken` is present in the project's `Plugins/` folder (it ships inside `RemoteServiceGateway.lspkg/Plugins/.../RemoteServiceGatewayToken/`), the agent MUST self-generate all three tokens via `ExecuteEditorCode`. Do NOT tell the user to open Window → Remote Service Gateway Token → Generate. Do NOT claim "you have to generate tokens yourself" or "I don't have access" — that is incorrect.**
+**RemoteServiceGateway 4.0.0 ships the `RemoteServiceGatewayToken` editor plugin** (Lens Studio extracts it to `Plugins/<id>/RemoteServiceGatewayToken/` on install). Whether or not it is present, the agent MUST first use the pinned `generate-and-assign-tokens.ts` action to generate and assign all three tokens via `ExecuteEditorCode`** — unless the user is signed out (see **Prerequisites** under the agent flow below).
 
 **ALWAYS generate ALL THREE tokens (SNAP, OPENAI, GOOGLE) — never a subset.** Even if the current feature only uses one provider (e.g. only OpenAI Chat Completions), the agent MUST still generate SNAP and GOOGLE tokens in the same call. Reasons:
 - Partial token setup causes confusing silent failures later when the user adds a feature that needs another provider.
@@ -132,13 +131,13 @@ Generating only the "currently needed" token is a bug, not an optimization. Alwa
 
 The plugin's permissions (`snap_auth_token`, `network`, `secure_local_storage`) are reachable from `ExecuteEditorCode` via `await import('LensStudio:Network')` and `Network.performAuthorizedHttpRequest()`. Because the user is already signed in to Lens Studio, the request is authorized automatically — no user action, no OAuth prompt, no API keys.
 
-**Detection step (run before token work):** Use `FileGrepTool` or scene-file inspection to check whether `RemoteServiceGateway.lspkg/Plugins/` contains `RemoteServiceGatewayToken`. If yes → self-generate. If no → fall back to the UI path below.
+**Detection step (run before token work):** do not look for a plugin folder inside the `RemoteServiceGateway.lspkg` package — it is not there in 4.0.0. Run the token action: `TOKENS_ASSIGNED` → done; `ACTION_REQUIRED` → follow its `reason` (sign-in, or the UI path below).
 
 **If the first `ExecuteEditorCode` token-generation attempt is denied or returns a permissions error**, that is a permission-prompt issue, not a capability issue — retry once after the user approves. Do NOT silently downgrade to "ask the user to click Window → Generate" without exhausting the programmatic path first.
 
-**UI path (fallback ONLY when the plugin is missing or `Network.performAuthorizedHttpRequest` is unreachable after retry):** Tell the user: **Window → Remote Service Gateway Token → Generate**. Without tokens set, the Lens silently fails on API calls with no clear error.
+**UI path (fallback ONLY when the token action remains unavailable after retry, and never for `reason: not_signed_in`):** report `ACTION_REQUIRED` and tell the user: **Window → Remote Service Gateway Token → Generate**. Plugin secure storage is sandboxed, so `ExecuteEditorCode` cannot automatically read back or wire UI-generated credentials without a separately verified bridge. Do not claim the credentials are wired: the user must configure the three `RemoteServiceGatewayCredentials` fields manually and save the project.
 
-**Token persistence depends on writing to the actual `@input` fields.** The `RemoteServiceGatewayCredentials` script exposes **three** `@input` token fields — `snapToken`, `openAIToken`, and `googleToken` (see `resources/scripts/RemoteServiceGatewayCredentials.ts`). Write all three directly (`credComp.snapToken = …`, `credComp.openAIToken = …`, `credComp.googleToken = …`, as in the canonical snippet below — never a subset) and **save to the `.scene` file with `Cmd+S`**. After saving, the tokens survive Lens Studio restarts — but they still expire (~1 hour TTL per Snap policy) and must be regenerated when expired. If the `.scene` file has stale/expired tokens, re-run the `ExecuteEditorCode` token-generation call and prompt the user to save again.
+**Token persistence depends on writing to the actual `@input` fields.** The `RemoteServiceGatewayCredentials` script exposes **three** `@input` token fields — `snapToken`, `openAIToken`, and `googleToken` (see `references/scripts/RemoteServiceGatewayCredentials.ts`). The token action assigns all three directly, never a subset; after `TOKENS_ASSIGNED`, **save to the `.scene` file with `Cmd+S`**. After saving, the tokens survive Lens Studio restarts — but they still expire (~1 hour TTL per Snap policy) and must be regenerated when expired. If the `.scene` file has stale/expired tokens, re-run the token action and save again.
 
 ### How it works
 
@@ -156,72 +155,16 @@ See the **ExecuteEditorCode authoring rules** in the Scene Hierarchy section abo
 
 ### Agent flow: generate tokens via ExecuteEditorCode
 
-The agent generates all three tokens (SNAP, OPENAI, GOOGLE — never a subset, see above) and wires them to the credentials component in one `ExecuteEditorCode` call — no manual steps from the user. **If this call fails or is unavailable, fall back to the UI path: Window → Remote Service Gateway Token → Generate.**
+Run the pinned, path-backed action with no args:
 
-```typescript
-// ExecuteEditorCode — generate all three RSG tokens and wire to credentials component
-// Verified working pattern: Network.performAuthorizedHttpRequest is accessible
-// from ExecuteEditorCode (runs in the same authorized plugin context as the TokenService plugin)
-import * as Network from 'LensStudio:Network';
-
-const model = pluginSystem.findInterface(Editor.Model.IModel) as any;
-const scene = model.project.scene as any;
-
-// Walk scene tree to find RemoteServiceGatewayCredentials ScriptComponent
-function findCredComp(): any {
-  function walk(obj: any): any {
-    for (const c of (obj.components ?? [])) {
-      if (c.type?.includes("RemoteServiceGatewayCredentials")) return c;
-    }
-    for (let i = 0; i < obj.getChildrenCount(); i++) {
-      const r = walk(obj.getChild(i));
-      if (r) return r;
-    }
-    return null;
-  }
-  for (const root of (scene.rootSceneObjects as any[])) {
-    const r = walk(root);
-    if (r) return r;
-  }
-  return null;
-}
-
-function generateToken(tokenType: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const req = new Network.HttpRequest();
-    req.url = `https://gcp.api.snapchat.com/smart-gate/v2/token/${tokenType}`;
-    req.method = Network.HttpRequest.Method.Post;
-    Network.performAuthorizedHttpRequest(req, (resp) => {
-      if (resp.statusCode === 200) {
-        try { resolve(JSON.parse(resp.body).token); }
-        catch (e) { reject(`Parse error: ${e}`); }
-      } else {
-        reject(`HTTP ${resp.statusCode}: ${resp.body}`);
-      }
-    });
-  });
-}
-
-// Generate all three tokens in parallel — never generate a subset.
-// After calling this, prompt the user to save (Cmd+S) to persist the tokens to the .scene file.
-const [snapToken, openAIToken, googleToken] = await Promise.all([
-  generateToken('SNAP'),
-  generateToken('OPENAI'),
-  generateToken('GOOGLE'),
-]);
-
-const credComp = findCredComp();
-if (!credComp) return 'ERROR: RemoteServiceGatewayCredentials component not found in scene';
-
-// Set directly as component properties (not setInputValue — direct assignment works)
-credComp.snapToken   = snapToken;
-credComp.openAIToken = openAIToken;
-credComp.googleToken = googleToken;
-
-return `All tokens set. SNAP: ${snapToken.slice(0,8)}... OPENAI: ${openAIToken.slice(0,8)}... GOOGLE: ${googleToken.slice(0,8)}...`;
+```text
+ExecuteEditorCode
+  path: <absolute path to this skill>/actions/generate-and-assign-tokens.ts
 ```
 
-**Prerequisites:** RSG package installed (LS 22+), user signed in to Lens Studio. No manual steps required from the user.
+The action obtains SNAP, OPENAI, and GOOGLE tokens inside its own EEC execution, assigns them only after all three requests succeed, and returns only `TOKENS_ASSIGNED` plus a non-sensitive receipt. It never accepts tokens in `args` and never returns a token, prefix, response body, or error detail. On any inability to generate or assign them it returns `ACTION_REQUIRED`. With `reason: not_signed_in`, follow **Prerequisites** below; otherwise follow the UI path above and do not imply automatic read-back/wiring is available.
+
+**Prerequisites:** RSG package installed, user signed in to Lens Studio. `ACTION_REQUIRED` with `reason: not_signed_in` → keep the installed and wired components, skip token assignment, continue the build, and tell the user to sign in and re-run token generation. Skip the action up front when the caller passed `is_authorized: false` or `unknown`; with no `is_authorized`, run it — the action checks sign-in itself before any request or scene write. A successful `TOKENS_ASSIGNED` result needs no token-entry step; the user must still save the project.
 
 **After generating tokens, always prompt the user to save the project (`Cmd+S`)** so the tokens are persisted to the `.scene` file. Tokens expire (~1 hour TTL per Snap policy) regardless of whether the project is saved. When a Lens returns auth errors, re-run token generation and save again.
 
@@ -229,108 +172,68 @@ return `All tokens set. SNAP: ${snapToken.slice(0,8)}... OPENAI: ${openAIToken.s
 
 ### What the plugin stores
 
-After generation the plugin also writes tokens to editor secure storage (for its own dialog display), but those keys are separate from the `@input` fields on the `RemoteServiceGatewayCredentials` component. The agent must still set `credComp.openAIToken`, `credComp.snapToken`, and `credComp.googleToken` directly (as shown in the primary flow above) — secure storage alone is not enough. Direct property assignment is used for credentials; `setInputValue()` is used for wiring object references between scene components.
-
-### Fallback: Window menu (minimal UI, one click)
-
-If `ExecuteEditorCode` cannot reach `LensStudio:Network` (e.g. permissions not propagated), instruct the user to open **Window > Remote Service Gateway Token** in the Lens Studio menu. The dialog generates tokens with one click per provider. After the user clicks generate, read the stored tokens from `secureLocalStorage` and wire them into the scene, then prompt the user to save (Cmd+S):
-
-- Read each token via `(global as any).secureLocalStorage.getItem(key)` then `JSON.parse(raw).token` — keys are `smart_gate_token_data_snap`, `smart_gate_token_data_openai`, `smart_gate_token_data_google`.
-- Wire them with the same `findCredComp()` walk shown in the primary flow above.
+The token-generator plugin may store its dialog values in plugin secure storage, but that storage is separate from `RemoteServiceGatewayCredentials` and sandboxed from `ExecuteEditorCode`. The token action therefore gets fresh tokens through the authorized endpoint and assigns the credential fields inside the same execution. A UI-generated token has no supported automatic read-back or wiring path unless a bridge is independently verified.
 
 ---
 
-## Editor Setup Script
+## Editor Actions
 
-One-time bootstrap: use `ExecuteEditorCode` to build the `Requirements` infrastructure (credentials + disabled `Websocket requirements` wrapping `MicrophoneRecorder` + `DynamicAudioOutput`) in one shot, after installing the RSG package. The full copy-ready snippet lives in `references/editor-setup-script.md` — read and run it once per project; it is idempotent.
+Use only these pinned, path-backed actions; never copy their bodies into an inline `code` call.
 
----
+### One-time Requirements bootstrap
 
-## Wiring Map (Critical)
+After installing RSG, run this static action with its path alone — it takes no args and is idempotent:
 
-After creating scripts, wire `@input` fields in the Inspector exactly as follows:
-
-| Component | `@input` field | Points to |
-|-----------|---------------|-----------|
-| `GeminiAssistant` | `websocketRequirementsObj` | `"RemoteServiceGatewayCredentials [EDIT ME]"` SceneObject |
-| `GeminiAssistant` | `microphoneRecorder` | `MicrophoneRecorder` component (child of Websocket requirements) |
-| `GeminiAssistant` | `dynamicAudioOutput` | `DynamicAudioOutput` component (child of Websocket requirements) |
-| `OpenAIAssistant` | `websocketRequirementsObj` | `"RemoteServiceGatewayCredentials [EDIT ME]"` SceneObject |
-| `OpenAIAssistant` | `microphoneRecorder` | `MicrophoneRecorder` component |
-| `OpenAIAssistant` | `dynamicAudioOutput` | `DynamicAudioOutput` component |
-| `AIAssistantUIBridge` | `geminiAssistant` | `GeminiAssistant` component on "Gemini Live" |
-| `AIAssistantUIBridge` | `openAIAssistant` | `OpenAIAssistant` component on "OpenAI Realtime" |
-| `InternetAvailabilityPopUp` | `popup` | The popup SceneObject |
-| `APIKeyHint` | `text` | A `Text` component in the scene |
-
-**Wiring via ExecuteEditorCode** — use this pattern to wire inputs programmatically. **Do not use scene-graphql to attach scripts** — `addScriptToSceneObject` does not exist as a mutation; use `addComponent("ScriptComponent")` in ExecuteEditorCode instead:
-
-```typescript
-// ExecuteEditorCode — wire assistant inputs after hierarchy is built
-const model = pluginSystem.findInterface(Editor.Model.IModel) as any
-const scene = model.project.scene as any
-
-function findByName(name: string): any {
-  function searchChildren(parent: any): any {
-    for (let i = 0; i < parent.getChildrenCount(); i++) {
-      const child = parent.getChild(i)
-      if (child.name === name) return child
-      const found = searchChildren(child)
-      if (found) return found
-    }
-    return null
-  }
-  const roots: any[] = scene.rootSceneObjects
-  for (const root of roots) {
-    if (root.name === name) return root
-    const found = searchChildren(root)
-    if (found) return found
-  }
-  return null
-}
-
-function getComp(obj: any, typeName: string): any {
-  const comps = obj.components ?? []
-  return comps.find((c: any) => c.type?.includes(typeName))
-}
-
-const credObj = findByName("RemoteServiceGatewayCredentials [EDIT ME]")
-const wsObj = findByName("Websocket requirements")
-const micObj = findByName("MicrophoneRecorder")
-const daoObj = findByName("DynamicAudioOutput")
-const geminiObj = findByName("Gemini Live")
-const geminiComp = getComp(geminiObj, "ScriptComponent")
-
-// Wire inputs on GeminiAssistant
-if (geminiComp) {
-  geminiComp.setInputValue("websocketRequirementsObj", credObj)
-  geminiComp.setInputValue("microphoneRecorder", getComp(micObj, "ScriptComponent"))
-  geminiComp.setInputValue("dynamicAudioOutput", getComp(daoObj, "ScriptComponent"))
-}
-
-return "Wired GeminiAssistant inputs"
+```text
+ExecuteEditorCode
+  path: <absolute path to this skill>/actions/bootstrap-requirements.ts
 ```
+
+It reuses any existing `RemoteServiceGatewayCredentials` component in the scene (a `Requirements` hierarchy or the `RemoteServiceGateway__PLACE_IN_SCENE` prefab) and any existing `Websocket requirements` object, then creates only missing objects/components; a newly created `Websocket requirements` starts disabled. Its safe receipt is `REQUIREMENTS_READY` with `credentialsObjectName` and `websocketRequirementsObjectName` — pass both to the realtime wiring action. `ACTION_REQUIRED` lists only missing package asset names.
+
+---
+
+### Realtime assistant wiring
+
+Pass only names (never native SceneObjects or components); the action resolves all native objects
+and components in EEC before assigning inputs:
+
+```text
+ExecuteEditorCode
+  path: <absolute path to this skill>/actions/wire-realtime-assistants.ts
+  args:
+    credentialsObjectName: "RemoteServiceGatewayCredentials [EDIT ME]"
+    websocketRequirementsObjectName: "Websocket requirements"
+    microphoneObjectName: "MicrophoneRecorder"
+    dynamicAudioOutputObjectName: "DynamicAudioOutput"
+    geminiAssistantObjectName: "Gemini Live"              # optional
+    openAIAssistantObjectName: "OpenAI Realtime"          # optional
+    uiBridgeObjectName: "AI UI Controller"                # optional
+```
+
+At least one Gemini or OpenAI assistant name is required. `uiBridgeObjectName` is optional; when supplied, **both** `geminiAssistantObjectName` and `openAIAssistantObjectName` are required or the action fails before lookup/mutation. The action wires each supplied assistant's `websocketRequirementsObj` to the `Websocket requirements` child (not the credentials parent), plus `microphoneRecorder` and `dynamicAudioOutput`; when supplied with both assistants, it connects `AIAssistantUIBridge` to both resolved components. It validates all names and required objects/components before mutation and returns `RSG_INPUTS_WIRED` only after assignments succeed; `wiredUIBridge` is true only when at least one bridge input was assigned.
 
 ---
 
 ## GeminiAssistant Script
 
-**Copy `resources/scripts/scene-scripts/GeminiAssistant.ts` into `Assets/` — do not rewrite from scratch.** The agentic variant (full function calling + video) is `GeminiAssistant.agentic.ts`. API surface:
+**Copy `references/scripts/scene-scripts/GeminiAssistant.ts` into `Assets/` — do not rewrite from scratch.** The agentic variant (full function calling + video) is `GeminiAssistant.agentic.ts`. API surface:
 
 - **`@input` fields:** `websocketRequirementsObj: SceneObject`, `dynamicAudioOutput: DynamicAudioOutput`, `microphoneRecorder: MicrophoneRecorder`, `instructions: string`, `haveVideoInput: boolean`, `haveAudioOutput: boolean`, `voice: string` (Puck/Aoede/Charon/Kore), `enableLogging: boolean`.
 - **Public events:** `updateTextEvent: Event<{text, completed}>`, `functionCallEvent: Event<{name, args, callId?}>`.
 - **Public methods:** `createGeminiLiveSession()` (enables WS requirements, opens `Gemini.liveConnect()`, sends `setup` on open), `streamData(isActive)` (start/stop mic + optional video frame), `interruptAudioOutput()` (barge-in), `sendFunctionCallUpdate(name, response)` (sends `tool_response`), `sendText(text)` (sends `client_content` with `turn_complete: true`), `disconnect()`.
-- Use the correct Gemini Live model id `models/gemini-2.0-flash-live-preview-04-09` and WAIT for `setupComplete` before attaching mic listeners (see Realtime Gotchas #1, #2). Gemini has no server VAD — send `client_content` with `turn_complete: true` on release (#3).
+- Use the correct Gemini Live model id `models/gemini-live-2.5-flash` and WAIT for `setupComplete` before attaching mic listeners (see Realtime Gotchas #1, #2). Gemini has no server VAD — send `client_content` with `turn_complete: true` on release (#3).
 
 ---
 
 ## OpenAI Realtime Script
 
-**Copy `resources/scripts/scene-scripts/OpenAIAssistant.ts` into `Assets/` — do not rewrite from scratch.** The agentic variant is `OpenAIAssistant.agentic.ts`. API surface:
+**Copy `references/scripts/scene-scripts/OpenAIAssistant.ts` into `Assets/` — do not rewrite from scratch.** The agentic variant is `OpenAIAssistant.agentic.ts`. API surface:
 
 - **`@input` fields:** `websocketRequirementsObj: SceneObject`, `dynamicAudioOutput: DynamicAudioOutput`, `microphoneRecorder: MicrophoneRecorder`, `instructions: string`, `haveAudioOutput: boolean`, `voice: string` (coral/alloy/echo/shimmer), `enableLogging: boolean`.
 - **Public events:** `updateTextEvent: Event<{text, completed}>`, `functionCallEvent: Event<{name, args, callId?}>`.
 - **Public methods:** `createOpenAIRealtimeSession()` (enables WS requirements, opens `OpenAI.createRealtimeSession`, sends `session.update` on open), `streamData(isActive)` (start/stop mic), `interruptAudioOutput()` (barge-in), `sendFunctionCallUpdate(name, callId, output)` (sends `function_call_output` + `response.create`), `disconnect()`.
+- Model `gpt-realtime-mini` (GA). `session.update` must use the GA shape (`type: "realtime"`, `output_modalities`, `audio.input` / `audio.output`) — see Realtime Gotchas #6.
 - OpenAI Realtime uses `server_vad` — do NOT manually commit the turn on release (see Realtime Gotchas #3).
 
 ---
@@ -352,9 +255,8 @@ public init(systemPrompt: string): void {
 public sendMessage(userText: string): Promise<string> {
   this.conversationHistory.push({role: "user", content: userText})
   return OpenAI.chatCompletions({
-    model: "gpt-4.1-nano",   // or "gpt-4o-mini"
+    model: "gpt-5.6-luna",   // model used by the RSG 4.0.0 ExampleOAICalls
     messages: this.conversationHistory,
-    temperature: 0.7
   }).then((response: OpenAITypes.ChatCompletions.Response) => {
     const reply = response.choices[0].message.content as string
     this.conversationHistory.push({role: "assistant", content: reply})
@@ -442,7 +344,7 @@ These mistakes silently break ASR with no helpful error. The agent must avoid th
 ### Canonical hold-to-talk pattern with SUIK Button
 
 ```typescript
-import {Button} from "SpectaclesUIKit.lspkg/Scripts/Components/Button/Button"
+import {Button} from "UIKit.lspkg/Scripts/Components/Button/Button"
 
 @input private micButton: Button
 @input private inputField: TextInputField
@@ -497,28 +399,30 @@ private stopListening(): void {
 
 ---
 
-## Google Image Generation: Use Imagen, NOT Gemini
+## Google Image Generation: Gemini image models via `Imagen.generateContent`
 
-`Gemini.models()` with `gemini-2.0-flash-exp` or `gemini-2.5-flash-image-preview` will return **HTTP 404 "Publisher Model … was not found or your project does not have access to it"** through RSG. The Gemini multimodal image-output endpoint is not enabled on the gateway. For Google image generation via RSG, **always use Imagen**:
+Generate images with a Gemini image model (`gemini-3.1-flash-image` or `gemini-3.1-flash-lite-image`) through the gateway's "imagen" route, `Imagen.generateContent`:
 
 ```typescript
 import {Imagen} from "RemoteServiceGateway.lspkg/HostedExternal/Imagen"
 import {GoogleGenAITypes} from "RemoteServiceGateway.lspkg/HostedExternal/GoogleGenAITypes"
 
-const request: GoogleGenAITypes.Imagen.ImagenRequest = {
-  model: "imagen-3.0-generate-002",   // known-good (see Gemini Model IDs); grep Imagen.ts for the current model string before assuming
+const request: GoogleGenAITypes.Imagen.GenerateContentRequest = {
+  model: "gemini-3.1-flash-image",   // or "gemini-3.1-flash-lite-image"
+  type: "generateContent",
   body: {
-    instances: [{prompt}],
-    parameters: { sampleCount: 1, aspectRatio: "1:1" },
+    contents: [{role: "user", parts: [{text: prompt}]}],
+    generationConfig: {responseModalities: ["TEXT", "IMAGE"]},
   },
 }
-Imagen.generateImage(request).then((response) => {
-  const b64 = response?.predictions?.[0]?.bytesBase64Encoded
-  if (b64) Base64.decodeTextureAsync(b64, (tex) => { /* assign baseTex */ }, () => {})
+Imagen.generateContent(request).then((response) => {
+  const parts = response.candidates?.[0]?.content?.parts ?? []
+  const imagePart = parts.find((part) => part?.inlineData?.data)
+  if (imagePart) Base64.decodeTextureAsync(imagePart.inlineData.data, (tex) => { /* assign baseTex */ }, () => {})
 })
 ```
 
-Gemini text/multimodal-input endpoints (chat, vision) work normally on the gateway — the restriction is only on Gemini's image-*output* preview models.
+`Gemini.models(...)` with the same model and `responseModalities: ["TEXT", "IMAGE"]` also returns the image as an `inlineData` part (this is what `ExampleGeminiCalls` does). For OpenAI image generation use `gpt-image-2`; it always answers `b64_json`.
 
 ---
 
@@ -528,10 +432,10 @@ These come from real sessions where realtime voice silently failed in different 
 
 ### 1. Use the right Gemini Live model name
 
-**`models/gemini-2.0-flash-live-001` returns "Invalid resource field value in the request"** and the WebSocket closes immediately. The working model id (matches `AI Playground` and `Agentic Playground`) is:
+**An unserved model id (e.g. `models/gemini-2.0-flash-live-001`) returns "Invalid resource field value in the request"** and the WebSocket closes immediately. The model id used by the RSG 4.0.0 `ExampleGeminiLive` (and the scripts in `references/scripts/scene-scripts/`) is:
 
 ```typescript
-geminiModel: string = "models/gemini-2.0-flash-live-preview-04-09"
+const modelUri = "models/gemini-live-2.5-flash"
 ```
 
 If the user sees `Gemini closed: Invalid resource field value …` in the logs, the model id is wrong — that error is the gateway rejecting an unknown publisher model, not a code bug.
@@ -542,7 +446,7 @@ Realtime sessions fail silently when steps run in the wrong order. The canonical
 
 1. **Enable** `websocketRequirementsObj` (the SceneObject wrapping `MicrophoneRecorder` + `DynamicAudioOutput`).
 2. **Initialize audio output** — `dynamicAudioOutput.initialize(24000)` BEFORE any `addAudioFrame()`.
-3. **Set mic sample rate** on the `MicrophoneRecorder` (16000 Hz for both providers).
+3. **Set mic sample rate** on the `MicrophoneRecorder` (16000 Hz for Gemini Live, 24000 Hz for OpenAI Realtime — as in `ExampleGeminiLive` / `ExampleOAIRealtime`).
 4. **Open the connection** — `Gemini.liveConnect()` or `OpenAI.createRealtimeSession({...})`.
 5. **OpenAI**: on `onOpen` → send `session.update` → attach chunk-ready listener → attach mic-frame listener → `startRecording()`.
 6. **Gemini**: on `onOpen` → send `setup` → **WAIT for `setupComplete`** → attach listeners → `startRecording()`. Attaching mic listeners before `setupComplete` is the most common Gemini failure mode — frames are sent into the void and the connection closes.
@@ -582,12 +486,12 @@ If the agent stubs out the audio path with a "TODO: wire AudioTrackAsset" commen
 
 ### 6. Modalities config
 
-- **Gemini Live (audio out)**: `generation_config.response_modalities: ["AUDIO"]` plus a `voice_config` block. Setting `["TEXT"]` here sends text-only and the user hears nothing — this is a config bug, not a model bug.
-- **OpenAI Realtime (full duplex)**: `session.update` with `modalities: ["text", "audio"]`, `voice: "coral"` (or another), and `turn_detection: { type: "server_vad" }`. Without `server_vad`, the server never commits the turn and the AI never replies.
+- **Gemini Live (audio out)**: `generationConfig.responseModalities: ["AUDIO"]` plus a `speechConfig.voiceConfig` block (the RSG `GeminiTypes` field names). Setting `["TEXT"]` here sends text-only and the user hears nothing — this is a config bug, not a model bug.
+- **OpenAI Realtime (full duplex, GA `gpt-realtime-mini`)**: `session.update` with `session: { type: "realtime", output_modalities: ["audio"], audio: { input: { format: { type: "audio/pcm", rate: 24000 }, turn_detection: { type: "server_vad", ... } }, output: { format: { type: "audio/pcm", rate: 24000 }, voice: "coral" } } }`. GA sessions answer in one modality (`["audio"]` also streams a transcript); the flat beta fields (`modalities`, `input_audio_format`, `voice`) are rejected by GA models. Listen for `response.output_text.delta` / `response.output_audio_transcript.delta` / `response.output_audio.delta`. Without `server_vad`, the server never commits the turn and the AI never replies.
 
 ### 7. Implement barge-in
 
-When the user starts speaking while the AI is still talking, both providers emit an interruption signal (`message.serverContent?.interrupted` for Gemini; `response.cancelled` / `input_audio_buffer.speech_started` for OpenAI). Call `dynamicAudioOutput.clearBuffer()` (alias `interruptAudioOutput()`) to silence the in-flight reply immediately. Without barge-in, the AI keeps talking over the user — extremely jarring on Specs.
+When the user starts speaking while the AI is still talking, both providers emit an interruption signal (`message.serverContent?.interrupted` for Gemini; `response.cancelled` / `input_audio_buffer.speech_started` for OpenAI). Call `dynamicAudioOutput.interruptAudioOutput()` to silence the in-flight reply immediately. Without barge-in, the AI keeps talking over the user — extremely jarring on Specs.
 
 ### 8. Realtime is device-only — editor preview will lie
 
@@ -596,7 +500,7 @@ In Lens Studio Preview, `MicrophoneRecorder` typically does not stream real fram
 | Log signal | Meaning |
 |---|---|
 | No `micFrame #1` ever printed | Mic isn't streaming — test on device, not Preview. |
-| `micFrame` events but no `chunkReady` | `AudioProcessor` is dropping empty/silent frames. Check `MicrophoneRecorder` sample rate (must be 16000). |
+| `micFrame` events but no `chunkReady` | `AudioProcessor` is dropping empty/silent frames. Check the `MicrophoneRecorder` sample rate: 16000 Hz for Gemini Live, 24000 Hz for OpenAI Realtime. |
 | `chunkReady` events but no AI reply | RSG token expired (regenerate), wrong model id (see #1), or `setup`/`session.update` was not awaited (see #2). |
 | `Gemini closed: Invalid resource field value` | Wrong model id (see #1). |
 | `Pipe was already closed` immediately after open | Token issue or model id issue — almost never a network problem. |
@@ -630,7 +534,7 @@ If the UI lets the user switch between OpenAI ↔ Gemini mid-experience, **close
 
 ### 11. Read the working sample first
 
-Before writing a new realtime script, read `AI Playground/Assets/Scripts/GeminiAssistant.ts` AND `OpenAIAssistant.ts` (or the `.agentic.ts` variants) under `resources/scripts/scene-scripts/`. They encode all the rules above. Most realtime failures in past sessions traced back to deviating from these samples — match their structure, then customize.
+Before writing a new realtime script, read `AI Playground/Assets/Scripts/GeminiAssistant.ts` AND `OpenAIAssistant.ts` (or the `.agentic.ts` variants) under `references/scripts/scene-scripts/`. They encode all the rules above. Most realtime failures in past sessions traced back to deviating from these samples — match their structure, then customize.
 
 ---
 
@@ -660,7 +564,7 @@ const inst = (data.gltfAsset as any).tryInstantiate(this.mesh3DRoot, this.meshMa
 - Never call `tryInstantiate(parent, null)`. Even `undefined` is unsafe — pass a concrete `Material` reference every time.
 - Build the material once and reuse it across base-mesh and refined-mesh callbacks. Re-cloning per-instantiation is fine but unnecessary.
 - If you don't have a PBR material at hand, clone a known-good UIKit material (e.g. `IMAGE_MATERIAL_ASSET.clone()`) as a safe fallback. The mesh will render unlit/flat-shaded, which is ugly but won't crash — that's an acceptable interim while wiring a proper PBR material.
-- The `Snap3DInteractableFactory` reference script in `resources/scripts/scene-scripts/` shows the canonical instantiation flow — read it before writing a Snap3D handler from scratch.
+- The `Snap3DInteractableFactory` reference script in `references/scripts/scene-scripts/` shows the canonical instantiation flow — read it before writing a Snap3D handler from scratch.
 - Tell the user up front that Snap3D refinement takes 30–90s and stream status updates ("3D base mesh ready, refining…", "3D refined") so they don't think the editor froze.
 
 **Placement defaults — put the mesh where the user can actually see it.** Snap3D meshes are authored in centimeters and instantiate at native scale at the parent's origin. If the parent is at `(0,0,0)` the mesh spawns inside the user's head and they see nothing. Default the mesh root to a comfortable in-front-of-the-user pose:
@@ -762,8 +666,8 @@ Wraps ASR into a clean Promise that resolves on final transcript. Reference: `AI
 
 ```typescript
 import {bindStartEvent} from "SnapDecorators.lspkg/decorators"
-import {BaseButton} from "SpectaclesUIKit.lspkg/Scripts/Components/Button/BaseButton"
-import Event from "SpectaclesInteractionKit.lspkg/Utils/Event"
+import {BaseButton} from "UIKit.lspkg/Scripts/Components/Button/BaseButton"
+import Event from "InteractionKit.lspkg/Utils/Event"
 
 @component
 export class ASRQueryController extends BaseScriptComponent {
@@ -816,7 +720,7 @@ export class ASRQueryController extends BaseScriptComponent {
 
 ## UIKit Integration (Essential)
 
-**`SpectaclesUIKit.lspkg` is a required dependency** in every RSG AI example — it provides the button and interaction layer that drives all user-initiated voice and AI interactions. Every scene-level script that handles user input imports from UIKit.
+**`UIKit.lspkg` is a required dependency** in every RSG AI example — it provides the button and interaction layer that drives all user-initiated voice and AI interactions. Every scene-level script that handles user input imports from UIKit.
 
 ### Why UIKit is mandatory
 
@@ -825,8 +729,8 @@ All RSG AI examples follow the same interaction model: the user pinches (on devi
 ### Core UIKit imports
 
 ```typescript
-import {BaseButton} from "SpectaclesUIKit.lspkg/Scripts/Components/Button/BaseButton"
-import {RoundButton} from "SpectaclesUIKit.lspkg/Scripts/Components/Button/RoundButton"
+import {BaseButton} from "UIKit.lspkg/Scripts/Components/Button/BaseButton"
+import {RoundButton} from "UIKit.lspkg/Scripts/Components/Button/RoundButton"
 ```
 
 | Class | Use |
@@ -857,7 +761,7 @@ private onStart(): void {
 When the user selects an assistant, hide the selection buttons with a scale animation before starting the session:
 
 ```typescript
-import animate from "SpectaclesInteractionKit.lspkg/Utils/animate"
+import animate from "InteractionKit.lspkg/Utils/animate"
 import {MathUtils} from "Utilities.lspkg/Scripts/Utils/MathUtils"
 
 private hideButton(button: BaseButton): void {
@@ -891,10 +795,10 @@ private hideButton(button: BaseButton): void {
 
 ### SphereController / RoundButton orb
 
-`SphereController` (from `resources/scripts/scene-scripts/`) manages the floating orb that activates mic streaming. The orb is a `RoundButton`:
+`SphereController` (from `references/scripts/scene-scripts/`) manages the floating orb that activates mic streaming. The orb is a `RoundButton`:
 
 ```typescript
-import {RoundButton} from "SpectaclesUIKit.lspkg/Scripts/Components/Button/RoundButton"
+import {RoundButton} from "UIKit.lspkg/Scripts/Components/Button/RoundButton"
 
 @input private roundButton: RoundButton
 
@@ -968,7 +872,7 @@ export class APIKeyHint extends BaseScriptComponent {
 
 ## Reference Scripts (copy-ready)
 
-Full working implementations are in `resources/scripts/scene-scripts/`. Use these as-is or adapt — do not rewrite from scratch.
+Full working implementations are in `references/scripts/scene-scripts/`. Use these as-is or adapt — do not rewrite from scratch.
 
 ### Single-script AI assistants (preferred — no inspector wiring)
 
@@ -1008,10 +912,11 @@ Install these before building any RSG scene (check with `ListInstalledPackagesTo
 | Package | Asset Library name |
 |---------|-------------------|
 | RSG | `RemoteServiceGateway` |
-| SIK | `SpectaclesInteractionKit` |
-| UIKit | `SpectaclesUIKit` |
+| InteractionKit | `InteractionKit` |
+| UIKit | `UIKit` |
 | Utilities | `Utilities` |
 | SnapDecorators | `SnapDecorators` |
+| Motion, Icons | `Motion`, `Icons` (declared in RSG 4.0.0 `package_dependencies.json`; not imported by RSG scripts) |
 
 ---
 
@@ -1020,7 +925,7 @@ Install these before building any RSG scene (check with `ListInstalledPackagesTo
 - **ASR is device-only** — see ASR Module Reference > Prerequisites. Never diagnose ASR issues in the Preview panel; always test on device.
 - **`Websocket requirements` must be disabled by default** — the assistant enables it on `createGeminiLiveSession()` / `createOpenAIRealtimeSession()`. Never enable it at scene load.
 - **RSG handles authentication** — no API keys in the Lens script. Token goes in `RemoteServiceGatewayCredentials [EDIT ME]`.
-- **Audio rates**: Gemini output 24000 Hz / mic input 16000 Hz. OpenAI Realtime same rates.
+- **Audio rates**: Gemini output 24000 Hz / mic input 16000 Hz. OpenAI Realtime output 24000 Hz / mic input 24000 Hz.
 - **`DynamicAudioOutput.initialize(24000)`** must be called before any `addAudioFrame()` — initialize in `onStart`, not `onAwake`.
 - **Function calls must get a response** before Gemini/OpenAI continues generating. Call `sendFunctionCallUpdate()` synchronously or the session stalls.
 - **`@bindStartEvent`** (from SnapDecorators) is preferred over `createEvent("OnStartEvent").bind()` — cleaner and handles dependency ordering.

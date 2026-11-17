@@ -90,7 +90,7 @@ Do not auto-wire serialized scene data — that requires Inspector authoring.
 After each fix:
 
 1. Recompile TypeScript via the `RecompileTypeScriptTool` MCP tool. Should pass.
-2. Re-launch the preview and collect logs via the `RunAndCollectLogsTool` MCP tool.
+2. Re-launch the preview and collect logs via the `RunAndCollectLogsTool` MCP tool, with the same `previewName` as step 7b.
 3. Confirm the original `Input <fieldName> was not provided` error is gone.
 4. Confirm no **new** `Input ... was not provided` errors appeared. (Removing one
    orphan can occasionally expose another that previously got drowned out — the Lens

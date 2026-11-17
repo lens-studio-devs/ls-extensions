@@ -69,33 +69,17 @@ Snap OS uses **angular sizes** (distance-independent):
 
 ---
 
-## Typography (Type Scale)
+## Typography
 
-This is the **single source of truth** for text size + weight in `/specs-build-ui`. Pick a **role** (the right-hand column), never a raw number. The skill applies it in one place — `applyTextRole(text, "Body")` — so size and weight always travel together and the whole scale is one edit away. These are the canonical Snap Specs text styles at the default focal plane, **z = -110 cm (110 cm / "Far")**, the best-default position where UI is normally placed:
+Use semantic roles such as title, headline, body, button, and caption rather
+than unrelated per-label sizes. In UIKit 4.0 assign a role with `ElementContent.ranking` and the `Ranking` enum (`Title1`, `Title2`, `HeadlineXL`, `Headline1`, `Headline2`, `Subheadline`, `Button`, `Callout`, `Body`, `Caption`); see `references/uikit-4.0.md`.
 
-| Style | `size` @110cm | Weight | Role string | Typical use |
-|-------------|-----------:|--------------|---------------|-------------|
-| Title 1 | 105 | Bold (700) | `"Title1"` | Hero / primary screen title |
-| Title 2 | 93 | Bold (700) | `"Title2"` | Secondary hero title |
-| Headline XL | 62 | Bold (700) | `"HeadlineXL"` | Prominent panel header |
-| Headline 1 | 54 | Bold (700) | `"Headline1"` | Panel / section title |
-| Headline 2 | 48 | Bold (700) | `"Headline2"` | Sub-section title |
-| Subheadline | 41 | Bold (700) | `"Subheadline"` | Group / item label, card name |
-| Button | 39 | Medium (500) | `"Button"` | Button labels |
-| Callout | 39 | Bold (700) | `"Callout"` | Inline callout / emphasis |
-| Body | 39 | Medium (500) | `"Body"` | Body copy, list-item text |
-| Caption | 38 | Medium (500) | `"Caption"` | Secondary labels, timestamps, subtitles, unit / overline labels |
-
-### What `text.size` actually is (and why sizing felt hard to control)
-
-`Component.Text.size` (and UIKit `textSize`) is the glyph **em-square height**, *not* cap/glyph height. In world space `em-square cm = size / 43.886` (StudioLib `Text.size`; the default `48` ≈ 1.09 cm). The numbers above are calibrated for the **SnapOS system font (Objektiv, em-square ratio ≈ 0.695)** at 110 cm — they are the values UIKit's own `TextStylePresets` resolves to on LS 5.16+ (it multiplies its design sizes by ≈0.953 internally to match Objektiv's em square; the skill bakes that result straight into the table so you set `text.size` directly).
-
-- **A custom theme font renders a different visual size for the same number.** Each font fills its em square differently, so once you bake `t.font = THEME_FONT` onto every label, "size 39" no longer matches the system-font reference. This is the usual root cause of "I set the size and it's still too big/small." **Fix it once, not per-label:** set `FONT_SIZE_SCALE` (a single module-scope constant `applyTextRole` multiplies into every size) to `≈ 0.695 / <font's em ratio>`. Default `1.0` is correct for the system font. See `/specs-build-ui` gotchas → *Text size drifts after a font swap*.
-- **Caption (38) is the floor at 110 cm.** Don't render readable text smaller than this on a panel at the default distance — sub-spec sizes (18–36) are hard to read at 110 cm.
-- **Closer panels scale down proportionally.** At Near (z = -55 cm) sizes are roughly half (Title 1 ≈ 53, Body ≈ 20). Pass the distance — `applyTextRole(t, "Body", 55)` scales by `actual_distance_cm / 110`.
-- **Weight rides with the role.** `applyTextRole` sets `(text as Text & {weight?: number}).weight` from the scale (Bold 700 / Medium 500). Don't set weight by hand — that's how size and weight drift apart. `TextStylePresets` sets size but not weight reliably (see `/specs-build-ui` gotchas), which is why the skill applies the scale directly instead.
-
-The canonical `TYPE_SCALE` / `FONT_SIZE_SCALE` / `applyTextRole` block lives in `/specs-build-ui` → `references/patterns.md → Typography`; the examples apply it by role.
+- Maintain a clear size and weight hierarchy.
+- Treat caption text as the readability floor, not a way to fit excess copy.
+- Scale typography for actual viewing distance.
+- Re-check the complete hierarchy when changing fonts; fonts with different
+  metrics can render at visibly different sizes.
+- Test long strings, wrapping, localization, and live numeric values in Preview.
 
 ---
 
@@ -172,27 +156,17 @@ Every interactive experience should evaluate whether UIKit elements are needed t
 - **Game state**: turns, scores, win/loss, round info
 - **Instructions**: "Pinch to place", "Pinch to restart"
 - **Status feedback**: loading, connecting, error states
-- **Any text the user needs to read** — use `/specs-build-ui` composition helpers (ElementContent, Frame/BackPlate, FlexLayout), NOT raw `Component.Text`
-- **Composition patterns** — FlexLayout / GridLayout mirror CSS Flexbox / Grid; see `/specs-build-ui` → *Icon + Text Composition Patterns* for the icon-next-to-text decision tree
+- **Any text the user needs to read**
 
 ### Standard Pattern — Use `/specs-build-ui`
 
-For all text and UI, use the composition helpers from `/specs-build-ui`. **Never use raw `Component.Text`** — it lacks font control, z-ordering, and layout integration.
-
-```typescript
-// Use /specs-build-ui helpers: scenePanel(), label(), btn(), content(), flexColumn(), flexRow()
-// See /specs-build-ui SKILL.md for the full composition system and examples.
-
-// Quick example — status panel with BackPlate:
-const panelContent = this.scenePanel(root, "StatusPanel", 30, 6, "backplate", "dark")
-this.label(panelContent, "Status message", 28, 4, {textSize: 48, fontWeight: "medium"})
-```
+Use `/specs-build-ui` to install UIKit and follow its `references/uikit-4.0.md`
+for composition and implementation.
 
 ### Design Rules
 - **Dark backgrounds, light text** (additive color space — white is boldest, black is transparent)
 - Position status panels **above or below** the main content, not overlapping it
-- Use **Billboard** so panels always face the user
-- Use **ElementContent** via `/specs-build-ui` for all text — never raw `Component.Text`
+- Keep important status UI facing the user and within a comfortable focal area
 
 ---
 
@@ -263,13 +237,13 @@ this.label(panelContent, "Status message", 28, 4, {textSize: 48, fontWeight: "me
 
 ---
 
-## Containers (SIK Standard)
+## Containers (Specs Standard)
 
 - Standard affordance for moving/adjusting spatial content.
 - Uses **spherical coordinate frame** for manipulation.
 - Features: Move, Scale, Rotate, Close, Change Anchor, Snap to others.
 - Size containers to **fit around content** with margins meeting target sizing recommendations.
-- Available in Spectacles Interaction Kit.
+- Available in UIKit as `Frame`.
 
 ---
 

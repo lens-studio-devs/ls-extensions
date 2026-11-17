@@ -22,7 +22,7 @@ This skill is for **creating or editing custom shaders** — `.graphShader` file
 
 ## Resolving `<LS_INSTALL>`
 
-Several reference files (below) and the manifest (§6) live inside the user's Lens Studio install. Run the `getLensStudioInstallPath` snippet from [`reference/resolve-ls-install.md`](reference/resolve-ls-install.md) via the `ExecuteEditorCode` MCP tool to get the path.
+Several reference files (below) and the manifest (§6) live inside the user's Lens Studio install. Read `executablePath` from `ls-live-instance.json` beside the project's `.mcp.json` (see [`lens-studio-router` → Find the Lens Studio executable](../lens-studio-router/references/environment-edge-cases.md#find-the-lens-studio-executable)). On macOS, `<LS_INSTALL>` is the `.app` bundle containing it: the path up to, not including, `/Contents/`. On Windows it is the executable's directory; the subpaths below use the macOS layout, so swap `/` for `\` and verify the equivalent location.
 
 ## Reference files
 

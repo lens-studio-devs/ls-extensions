@@ -14,7 +14,7 @@ The orchestrator evaluates conditions top-to-bottom. The first match exits the l
 | # | Condition | Argument | Default | Hard-stop? | Notes |
 |---|-----------|----------|---------|-----------|-------|
 | 1 | Git working tree dirty | — | — | yes | Pre-iteration check. If revert + clean left junk, surface and exit. |
-| 2 | MCP unreachable | — | — | yes | `ListAllPanels` empty. Surface and exit. |
+| 2 | MCP unreachable | — | — | yes | Liveness probe (`ExecuteEditorCode` with `return "ok";` — field-notes Hard Rule 6) fails. Surface and exit. |
 | 3 | Consecutive reverts | — | `>= 3` | yes | Likely recipe drift from project; surface failing candidate IDs. |
 | 4 | Wall-clock budget | `wall-clock-budget-min` | 90 | no | Soft — current iteration finishes first. Default 90 min. |
 | 5 | Max iterations | `max-iterations` | 12 | no | Counted by iterations attempted, not kept. |

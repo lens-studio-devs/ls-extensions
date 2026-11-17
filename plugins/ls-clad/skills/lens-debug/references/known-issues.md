@@ -13,7 +13,7 @@ SPDX-License-Identifier: Apache-2.0
 - **Render layer mismatch** — SceneObject's layer not in the camera's Render Layer set. Invisible with no error.
 - **Outside camera near/far** — object at distance 0 with camera `near=1` is clipped; same past `far`.
 - **Facing wrong way** — single-sided mesh; check from cardinal angles. Diagnostic: `mat.mainPass.twoSided = true` — if it appears, fix the geometry (rotate or re-export with correct normals; don't ship with `twoSided` on, it doubles fragment work).
-- **Z-fighting** — two surfaces at identical world depth flicker. Move one along the view axis by a large delta first to confirm; then dial back to the smallest offset that still resolves it. For UI: `ls-clad:specs-build-ui` § Z-Ordering / Root Canvas.
+- **Z-fighting** — two surfaces at identical world depth flicker. Move one along the view axis by a large delta first to confirm; then dial back to the smallest offset that still resolves it. For world-space UIKit: `ls-clad:specs-debug` § "UI rendering — z-fighting, render order, depth", and `/specs-build-ui` rule 2 (root Canvas + one small `+Z` offset per stacked layer).
 - **Bounds check** — print AABB (snippet in § Layout wrong at runtime below):
   - Camera between `aabbMin` / `aabbMax` → rendering from inside the geometry; scene looks empty. Usual cause: runaway `setLocalScale` or inflated parent transform.
   - AABB sub-pixel at camera distance → too small to render. Usual cause: wrong import scale (Blender 100x).
@@ -59,7 +59,7 @@ Deeper coordinate / projection math → `lens-api` → `references/math.md`.
 - **Add `DeviceTracking` to the root Camera** — without it, every transform is camera-relative.
 - **Pick the mode:**
   - `Surface` — content sticks to a physical surface (table, floor). Phone Lenses.
-  - `World` — user walks around content. Required for Specs, SIK, spatial anchors.
+  - `World` — user walks around content. Required for Specs, IK, spatial anchors.
   - `Rotation` — rotates with device, no translation.
 
 Specs requires `World` mode → `ls-clad:specs-project-init`.

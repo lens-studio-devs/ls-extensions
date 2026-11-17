@@ -20,8 +20,8 @@ const a = new vec3(1, 0, 0)       // explicit
 const b = vec3.zero()              // (0, 0, 0)
 const c = vec3.one()               // (1, 1, 1)
 const up = vec3.up()               // (0, 1, 0)
-const forward = vec3.forward()     // (0, 0, 1) — the +Z unit vector
-const back = vec3.back()           // (0, 0, -1) — the -Z unit vector (scene "forward" direction)
+const forward = vec3.forward()     // (0, 0, 1)
+const back = vec3.back()           // (0, 0, -1)
 const right = vec3.right()         // (1, 0, 0)
 ```
 
@@ -260,7 +260,6 @@ For ScreenTransform coordinates, anchors, offsets, and coordinate conversions, s
 
 ## Common Gotchas
 
-- **`vec3.forward()` returns `(0, 0, 1)` (+Z)**, NOT the scene's forward direction. Lens Studio's convention is -Z = forward. Use `Transform.forward` (instance property, returns -Z for unrotated objects) or `vec3.back()` when you need the scene-convention forward. Confusing `vec3.forward()` with `Transform.forward` is a common source of inverted-direction bugs.
 - **Never modify vec3/quat in-place** — most ops return new instances. `a.add(b)` returns a new vec3; `a` is unchanged.
 - **Euler angle order** in `quat.fromEulerAngles(x, y, z)` is pitch, yaw, roll (XYZ). Mixing up the order causes unexpected rotations.
 - **`quat.lookAt(forward, up)` is undefined when forward ≈ up** — always guard with a dot product check and swap to a fallback up vector.

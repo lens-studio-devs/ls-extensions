@@ -23,21 +23,22 @@ This skill is for **creating or editing custom particle effects** — `.graphVfx
 
 ## Placing a VFX in the scene
 
-VFX Graph (`.graphVfx` → `VFXAsset` → `VFXComponent`) is **not** the legacy GPU Particles system (`GPUParticles*Preset` → `RenderMeshVisual` + `GPU Particles.mat`). Picking a `GPUParticles*Preset` gives you the legacy system and your `.graphVfx` won't render.
+VFX Graph (`.graphVfx` → `VFXAsset` → `VFXComponent`) is a **different system** from GPU Particles (`GPUParticles*Preset` → `RenderMeshVisual` + `GPU Particles.mat`). Picking a `GPUParticles*Preset` gives you the GPU Particles system and your `.graphVfx` won't render. If you deliberately want GPU Particles (a quick preset, no graph authoring), see [§9 GPU Particles](#9-gpu-particles-a-preset-based-system-separate-from-vfx-graph).
 
 **There is no preset for VFX Graph today** — don't search `presets(type: SceneObject)` / `presets(type: Component)` for one. And don't try to wire one after the fact via `setProperty(..., "VFXAsset" | "vfxAsset" | "asset", ...)` or `VirtualScene apply.modify` — those fail because `VFXComponent` has no editor-side JS-bound properties beyond the base Component fields.
 
-**Use `AssetManager.instantiate()` from `ExecuteEditorCode`** — the native path that drag-and-drop uses. One call creates a SceneObject + VFXComponent wired to the asset:
+**Use `AssetManager.instantiate()` from `ExecuteEditorCode`** — the native path that drag-and-drop uses. Call the path-backed action with the stable VFX asset ID as structured runtime `args`.
 
-```ts
-const model = pluginSystem.findInterface(Editor.Model.IModel);
-const am = model.project.assetManager;
-const VFX_ASSET_UUID = "<vfx-asset-uuid>";
-const vfxAsset = am.assets.find(a => a.id.toString() === VFX_ASSET_UUID);
-if (!vfxAsset) return { error: `VFX asset ${VFX_ASSET_UUID} not found` };
-const [obj] = await am.instantiate([vfxAsset]);
-return { sceneObjectId: obj.id.toString() };
+Pass the stable VFX asset ID to the action; it resolves the asset internally and uses the same native instantiation path as drag-and-drop:
+
+```text
+ExecuteEditorCode({
+  path: "<absolute path to this skill>/actions/instantiate-vfx.ts",
+  args: { vfxAssetId: "<vfx-asset-id>" }
+})
 ```
+
+The result includes `sceneObjectId`. A missing/invalid asset ID, a resolved non-`VFXAsset`, or an empty native instantiation result is an action failure.
 
 Rename, reparent, and transform via `scene-graphql` afterward — base SceneObject properties ARE bound. Exposed VFX parameters on the output Material (`passInfos.0.baseTex`, `passInfos.0.Port_*`) use `asset-graphql: setProperty` against the Material asset — those paths work normally.
 
@@ -191,3 +192,76 @@ If a VFX looks wrong or is not rendering anything at all, **disable content node
 **Empty-VFX baseline.** A graph with only the four container Begin/End pairs (no content nodes between them at all) renders a **grid of white billboard quads that progressively emit over ~16 seconds.** That's the engine's all-defaults fallback. If a stripped-down graph doesn't look like this, the problem is **outside** the graph — asset import, `VFXComponent` disabled, SceneObject layer mismatch with the rendering camera, or camera framing — not in the YAML.
 
 Typical bisection move: disable the Output container's content first (`Node{N}CheckEnabled: false` on `node_main_particle_orient`, any `_size_multiplier`, and the `node_util_custom_container_output_pixel`/`_vertex` code nodes). If particles re-appear as white quads, the issue is in the output stage — re-enable nodes one at a time until the failure returns; that node owns the bug. Apply the same disable-and-restore pattern to the Update and Spawn containers when the issue is upstream of rendering.
+
+---
+
+## 9. GPU Particles (a preset-based system, separate from VFX Graph)
+
+GPU Particles is a **separate system** from VFX Graph — it shares none of the `.graphVfx` pipeline above (no Spawn/Update/Output containers, none of the graph nodes you author in §§1–8). It is a **preset**: instanced quads (or 3D meshes) driven by a prebuilt, **stateless** particle **shader graph** (itself authored with custom code nodes) that you configure through **material pass properties** rather than by editing the graph. Both systems are current and supported — neither is deprecated.
+
+**Which to use.** VFX Graph is the default for most effects. The two systems differ in one fundamental way: **VFX Graph is stateful, GPU Particles is stateless.** GPU Particles recomputes every particle each frame from the lens clock, a per-instance seed, and the emitter's *current* transform — nothing carries over between frames. That gives it three properties:
+
+- **Translation-locked.** Every frame, `position = emitterWorldMatrix × spawnPoint + displacement`. Move the emitter and every live particle moves with it — an emitter parented to a bone follows it, and so do its already-emitted particles (no lag, no trail). It cannot leave a trail behind a moving emitter or leave sparks at a hit point once the emitter moves on.
+- **No inter-frame state.** No collisions and no per-particle logic. Motion is closed-form in particle age: velocity range and drag, gravity, local force, sine and simplex noise, a velocity ramp, and one custom force. The custom force defaults to Attract/Repel, but it is computed from the particle's spawn point, not its current position, so it cannot orbit particles or settle them on a target.
+- **Deterministic.** The same seed and time give the same frame, and time can be scrubbed (External Time). The exception is **World Position Seed**: it adds the emitter transform to the seed, so moving the emitter reshuffles the particles. Unlike VFX Graph, GPU Particles has no simulation stage: the vertex shader computes every position fresh each frame.
+
+Its **World / Local Space** option only picks the axes for velocity and gravity, and whether 3D Mesh particles rotate with the emitter (`Local Space`, `World Space – Ignore Emitter Rotation`, `World Force – Gravity Ignores Emitter Rotation`); it never detaches positions from the emitter.
+
+**Use VFX Graph** when particles must persist in the world independently of the emitter (smoke or fire trailing a moving object, debris left at an impact), when you need collisions, attractors, or per-particle logic, or for multi-emitter and interactive effects. **Use GPU Particles** when the effect rigidly belongs to its emitter (an aura around a held object, sparkle on a bone), for a quick ambient effect with no graph authoring, or for a replayable burst at a fixed point.
+
+**Editor code and runtime scripts use different APIs for this system** — creating the emitter, reaching its material, and reading its properties all differ. The usual division of labor is: **create and configure the emitter at author time (Editor API), then let a runtime script *drive* an already-placed emitter** (see the burst recipe below).
+
+**Creating the emitter (author-time / Editor API).** There is no `scene.createSceneObjectFromPreset` on the editor `Scene`. Use the MCP call `scene-graphql.createSceneObjectFromPreset` with preset `"GPUParticlesObjectPreset"`, or construct the preset through `PresetsRegistry` in `ExecuteEditorCode` (see `editor-api` → `references/presets.md`). The preset populates its `RenderMeshVisual` **asynchronously** — its components are empty on the tick you create it, so don't read them synchronously.
+
+**Reading & writing the config.** The emitter's per-instance material holds the entire configuration as **pass properties**. Names can differ between versions of the particle graph. A material keeps the graph it was created with, even after its project is opened in a newer Lens Studio, and nothing in the scene tells you which version that is. **So decide by what you did: if you created the preset in this task, it uses the current graph and the names documented in this section are safe. For any material you didn't create, enumerate the names before relying on them.** How you access them depends on where your code runs:
+
+- **Editor API (`ExecuteEditorCode` / asset tools)** — the material exposes `passInfos[0]`. `passInfos[0].getPropertyNames()` returns the writable uniform names; `passInfos[0].uiData.passBindings` returns the full labeled schema — each entry's `name`, `label`, `type`, and (for numeric bindings) `defaultValue` and `min`/`max` — including the feature-toggle `#define`s that gate optional groups. The name list only includes properties the current toggle settings use, so set the toggles before you read it. Read or write a value by **direct named access on the pass** — `material.passInfos[0].<name>` in `ExecuteEditorCode` — or via the asset-graphql `setProperty(propertyPath: "passInfos.0.<name>")` mutation. (There is no `getProperty`/`setProperty` method on the material itself.)
+- **Runtime (Lens API script)** — reach the same fields directly by name through the visual's material: `visual.mainMaterial.mainPass.<name>` (shader uniforms surface as named properties on the `Pass`). The runtime `Pass` has no way to *list* its property names — it's fixed accessors plus get/set by known name — so discover the identifiers once with the editor probe above (or the Material inspector), then address them by name at runtime.
+
+When you enumerate, read each property back before writing — a field's value encoding can vary by version too. The controls group into categories such as lifetime & spawn timing, spawn shape (box / sphere / point), motion (velocity range, drag, gravity), size and color/alpha over life, rotation, and the base texture — plus optional `#define`-gated groups such as flipbook / sprite-sheet animation, PBR, noise, and trails (enumerate their parameters the same way; don't assume names).
+
+Particle count is the pass's instance count on both surfaces — `passInfos[0].instanceCount` in the Editor API, `mainPass.instanceCount` at runtime (it's a `Pass` property, not a property of the host visual). There is **no** separate spawn-rate / `birthRate` parameter — spawn behavior is governed by the spawn-duration field and the spawn-mode `#define`s.
+
+### Bursts (hit sparks, confetti, muzzle flash)
+
+Enable **External Time**, **Instant Spawn**, and **Pre-Warm** on the GPU Particles material; in the Editor API, add `EXTERNALTIME`, `INSTANTSPAWN`, and `PREWARMSPAWN` to `passInfos[0].defines`. Pre-Warm is required: with Instant Spawn on and Pre-Warm off, no particle ever appears. To fire, set `mainPass.externalTimeInput = 0` from a script and advance it by `getDeltaTime()` each frame until it passes the particle lifetime; the emitter stays invisible until the next fire.
+
+**Reusing a material you didn't create:** check it in the same Editor call that sets those toggles. After setting them, `getPropertyNames()` must include `externalTimeInput`, `externalSeed`, `timeGlobal`, and `lifeTimeMinMax` or `lifeTimeConstant`. If `PREWARMSPAWN` is missing from `uiData.passBindings`, skip it: graphs from before Lens Studio 5.10 lack the toggle and already behave pre-warmed. If neither lifetime name is present, look for `timeLifeMinMax`, which older graphs use, and substitute it in the script; or recreate the material from the preset.
+
+```js
+// @input Component.RenderMeshVisual visual   // defaults to this object's RenderMeshVisual
+var pass = (script.visual || script.getSceneObject().getComponent("Component.RenderMeshVisual")).mainMaterial.mainPass;
+// Lifetime Random picks which lifetime field the shader uses; the larger covers either setting.
+var longest = Math.max(pass.lifeTimeConstant || 0, pass.lifeTimeMinMax ? pass.lifeTimeMinMax.y : 0);
+// Global Time Multiplier scales particle age; at 0 particles never age, so no burst can play.
+var rate = pass.timeGlobal;
+
+if (rate > 0 && longest > 0) {
+    setUpBurst(longest / rate);
+} else {
+    print("GPU Particles burst not set up: needs Global Time Multiplier > 0 and a lifetime > 0");
+}
+
+function setUpBurst(life) {
+    var t = life + 1;                       // start past the end: nothing visible until fire()
+    pass.externalTimeInput = t;
+
+    function fire() {
+        t = 0;
+        pass.externalSeed = Math.random();  // new random look per burst
+        pass.externalTimeInput = 0;         // rewind: every particle restarts
+    }
+
+    script.createEvent("UpdateEvent").bind(function () {
+        if (t > life) { return; }           // burst over; hold
+        t += getDeltaTime();
+        pass.externalTimeInput = t;
+    });
+    script.createEvent("TapEvent").bind(fire);
+    script.fire = fire;                     // other scripts: script.fire()
+}
+```
+
+(For the cross-script hook that a gameplay controller calls to fire, see `lens-api` Cross-Script Communication.)
+
+> **Motion verification:** an orthographic `CaptureRuntimeViewTool` freezes simulation time — two captures come out pixel-identical even while particles are emitting. To confirm a GPU-particle emitter is actually live, use Preview-panel screenshots ≥1 s apart; a `playing = true` emitter can still be inert.

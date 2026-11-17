@@ -70,19 +70,9 @@ st.offsets.bottom = -30; st.offsets.top = 30     // 60 units tall
 
 ## Coordinate Conversions
 
-```typescript
-// Screen-space (pixels) ← ScreenTransform local
-const screenPx: vec2 = st.localPointToScreenPoint(new vec2(0, 0))
-
-// ScreenTransform local ← screen-space pixels
-const local: vec2 = st.screenPointToLocalPoint(touchPosScreenPx)
-
-// World space (3D) ← ScreenTransform local
-const worldPt: vec3 = st.localPointToWorldPoint(new vec2(0, 0))
-
-// ScreenTransform local ← World space
-const localPt: vec2 = st.worldPointToLocalPoint(hit.position)
-```
+`ScreenTransform` converts between its local space, screen pixels, and world space
+via `localPointToScreenPoint` / `screenPointToLocalPoint` / `localPointToWorldPoint`
+/ `worldPointToLocalPoint`. See their signatures in `Support/StudioLib.d.ts`.
 
 
 ## ScreenImage
@@ -105,38 +95,27 @@ screenImage.mainPass.baseColor = new vec4(1, 1, 1, 1)
 screenImage.enabled = false
 ```
 
-### Stretch modes (`StretchMode` enum, set in Inspector or script)
-| Mode | Behaviour |
-|---|---|
-| **Stretch** | Non-uniform scale to match exact width/height |
-| **Fit** | Uniform scale so both dimensions fit within bounds |
-| **Fill** | Uniform scale so both dimensions meet/exceed bounds |
-| **FitHeight** | Uniform scale to match height |
-| **FitWidth** | Uniform scale to match width |
-| **FillAndCut** | Fill with cropping outside bounds |
+### Stretch modes
+
+`Component.Image` scaling is controlled by the `StretchMode` enum; see its members
+and what each one does in `Support/StudioLib.d.ts`.
 
 
 ## Text Component
 
-```typescript
-const textComponent = this.sceneObject.getComponent('Component.Text')
+> **`Component.Text` vs `Component.Text3D`.** `Component.Text` is the entire surface for flat 2D / screen-space / world-space label text — it is what everything below documents. `Component.Text3D` is a *different* component: an **extruded 3D text mesh** (`extends MaterialMeshVisual`, has materials + `extrudeDirection`) that renders magenta/pink when its material is unbound. Do **not** reach for Text3D for a HUD, caption, or label — use it only when the source is genuinely extruded 3D mesh text.
 
-// Set text content
-textComponent.text = 'Score: ' + score
+`Component.Text`'s property surface (`text`, `size`, `weight`/`italic`, fonts,
+`horizontalAlignment`/`verticalAlignment`, `horizontalOverflow`/`verticalOverflow`,
+`layoutRect`, `depthTest`, `twoSided`, casing override, and the measurement
+helpers) is defined, with its defaults and per-property examples, in
+`Support/StudioLib.d.ts`. Look each one up there rather than guessing or
+restating it here. A few cross-cutting behaviors that no single property's entry
+spells out:
 
-// Change font size
-textComponent.size = 48
-
-// Alignment
-textComponent.horizontalAlignment = HorizontalAlignment.Center
-textComponent.verticalAlignment   = VerticalAlignment.Center
-
-// Color
-textComponent.textFill.color = new vec4(1, 1, 1, 1)  // white
-
-// Bold / italic via the text property (HTML-style tags)
-textComponent.text = '<b>Bold</b> and <i>italic</i>'
-```
+- **Rich text is off by default.** `enableRichText` starts `false`, so `<b>`/`<i>`/`<color=...>` markup prints as literal characters until you enable it. Prefer the first-class `weight`/`italic` properties over tags for plain emphasis.
+- **Alignment and the `Wrap`/`Shrink`/`sizeToFit` overflow modes act on a layout rect**: a `ScreenTransform`'s rect when one is attached (it takes precedence), otherwise `Text.layoutRect`. With no rect they have nothing to work against.
+- **Attach a `ScreenTransform` up front, not later.** Adding one to an already world-placed Text hands placement to screen-space anchors and supersedes the object's local transform, so the label can jump. Add it when you build the object.
 
 ### Setting text from untrusted sources (network data, user content)
 
@@ -199,7 +178,7 @@ interaction.onTap.add((eventData: TapEventArgs) => {
 
 ## UI Buttons for Phone Lenses
 
-For phone Lenses (not Specs), use tap regions rather than SIK PinchButton:
+For phone Lenses (not Specs), use tap regions rather than a Specs UIKit `Button`:
 
 ```typescript
 // Pattern: invisible ScreenImage + InteractionComponent as a button

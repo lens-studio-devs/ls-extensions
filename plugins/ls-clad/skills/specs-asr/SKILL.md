@@ -19,14 +19,14 @@ SPDX-License-Identifier: Apache-2.0
 
 > Hardcode options in code (silence timeout, mode, logging) — only expose `@input` when a non-engineer needs to tune it.
 
-Full reference docs: [`resources/docs/asr-module.mdx`](resources/docs/asr-module.mdx)
+Full reference docs: [`references/docs/asr-module.mdx`](references/docs/asr-module.mdx)
 
 Full script examples (each file is a complete, runnable component):
-- [`resources/examples/AsrExample.ts`](resources/examples/AsrExample.ts) — minimal docs example
-- [`resources/examples/ASRController-minimal.ts`](resources/examples/ASRController-minimal.ts) — small standalone controller
-- [`resources/examples/ASRQueryController.ts`](resources/examples/ASRQueryController.ts) — voice query feeding an AI pipeline
-- [`resources/examples/ChatASRController.ts`](resources/examples/ChatASRController.ts) — ASR inside a chat application
-- [`resources/examples/SummaryASRController.ts`](resources/examples/SummaryASRController.ts) — capture-and-summarize pattern
+- [`references/examples/AsrExample.ts`](references/examples/AsrExample.ts) — minimal docs example
+- [`references/examples/ASRController-minimal.ts`](references/examples/ASRController-minimal.ts) — small standalone controller
+- [`references/examples/ASRQueryController.ts`](references/examples/ASRQueryController.ts) — voice query feeding an AI pipeline
+- [`references/examples/ChatASRController.ts`](references/examples/ChatASRController.ts) — ASR inside a chat application
+- [`references/examples/SummaryASRController.ts`](references/examples/SummaryASRController.ts) — capture-and-summarize pattern
 
 ---
 

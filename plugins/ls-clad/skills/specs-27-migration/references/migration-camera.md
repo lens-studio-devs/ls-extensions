@@ -61,12 +61,25 @@ Remove any `CameraRawModule` references. It was an empty private class with no r
 
 ### High-res still image capture
 
-If the Lens captures still images, use:
+If the Lens captures still images, use a capture session on a stream that supports stills
+(Lens Studio 5.25+; `createImageRequest()` / `requestImage()` no longer exist). Full pattern:
+`specs-camera`.
 
-```js
-let imageRequest = cameraModule.createImageRequest();
-cameraModule.requestImage(imageRequest).then(function(texture) { ... });
+```ts
+const stream = cameraModule.getCameras()
+  .map((camera) => camera.getStreams().find((s) => s.operation === CameraModule.Operation.Capture))
+  .find((s) => s !== undefined)
+if (stream) {
+  const config = new CameraModule.StreamConfig()
+  config.stream = stream
+  const session = cameraModule.createCaptureSession()
+  if (session.start(config) === CameraModule.Result.Success) {
+    const frame = await session.capture() // frame.texture; stop() the session when done
+  }
+}
 ```
+
+In the Lens Studio Preview no stream supports stills, so test still capture on device.
 
 ## CameraId enum values
 

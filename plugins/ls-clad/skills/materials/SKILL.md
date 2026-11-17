@@ -75,6 +75,33 @@ These paths are for **PBR materials** (`SimplePBRMaterialPreset`). The `passInfo
 
 **Imported GLB (glTF) materials use different property names**: `metallicFactor` / `roughnessFactor` (not SimplePBR's `metallic`/`roughness`). Their lighting mode is a **preprocessor define** — the string `ENABLE_GLTF_LIGHTING` in the pass's `defines` array — not a property: a GraphQL `setProperty` on `passInfos.0.ENABLE_GLTF_LIGHTING` returns `success: true` but changes nothing (verified silent no-op). To inspect or change it, use `ExecuteEditorCode` on the embedded material (`assetManager.getFileMeta(sourcePath).assets.filter(a => a.isOfType('Material'))` → edit `passInfos[i].defines`) and read the array back to confirm.
 
+## Transparency: set `blendMode` (and `depthWrite`) on the pass
+
+Setting alpha on an editor-side material does **not** make it transparent on its own. The alpha rides on `passInfos.0.baseColor` (the `.w` channel), but the surface keeps compositing **opaque** until the pass's `blendMode` is switched off `Disabled`. Set `blendMode` (and `depthWrite`) with `asset-graphql setProperty` on the pass:
+
+```graphql
+mutation {
+  setProperty(id: "<materialId>", propertyPath: "passInfos.0.blendMode",
+              value: "Normal", valueType: ENUM, enumType: "Editor.Assets.BlendMode") { changed after }
+}
+```
+
+Use `Normal` for alpha blend and `Add` for additive; reading `blendMode` back returns its full `options` list and default, and the members live in the `Editor.Assets.BlendMode` enum — prefer the symbolic names. Set `passInfos.0.depthWrite` (BOOLEAN) **false** for transparent surfaces, **true** for opaque/cutout. This is the single most common "I set alpha but it's still solid" failure in editor-side scene builds.
+
+(Runtime Lens scripts use the opposite handle: `mat.mainPass.blendMode = BlendMode.Normal` — see `lens-api/references/materials-shaders.md`. The `passInfos` (editor) / `mainPass` (runtime) split is the same Editor-vs-Runtime divide as the `baseColor` row in the table below.)
+
+## UberPBR gotchas (pink / white / black / dim / invisible surfaces)
+
+`UberPBRMaterialPreset` is the default PBR material for imported / converted content, and its shader + preset defaults cause a family of surface bugs that are otherwise chased in lighting. These are shader/preset behaviors (not visible in the type declarations) — observed against the migration material pipeline as of 2026-09; re-verify against the installed preset, since a new preset revision can change its shipped defaults:
+
+- **Final opacity = `baseColor.a × baseTex.a`.** The shader does `Opacity *= Albedo.a`, so a `baseColor.a` of 0 renders the surface **fully invisible regardless of texture**, and texture-borne transparency is missed if you only inspect the color's alpha.
+- **`opacityTex` samples luminance (brightness), not alpha.** Binding a light-background albedo there reads as fully opaque → **white shards**. For alpha-cutout foliage, set `ENABLE_OPACITY_TEX=false` and use a cutout `blendMode` on `baseTex`'s own alpha instead.
+- **Magenta error tile = an `ENABLE_*_TEX` define is true while its slot is null/unresolved.** (A color-only material with an emissive define but no emissive texture is a valid exception.) A bound-but-undecoded albedo renders **black**, not magenta.
+- **The preset ships a 1×1 50%-grey `Base.png` as the default `baseTex` (with `ENABLE_BASE_TEX` auto-on).** A color-only material left untouched therefore renders `baseColor × 0.5 grey` — half brightness. Bind a project-local white 1×1 so color-only = `baseColor × white`. The preset may symmetrically ship `ENABLE_NORMALMAP` on with a default normal map, giving false relief to a flat surface.
+- **Assigning any texture-slot value auto-adds its `ENABLE_*` define.** To turn one **OFF**, read-modify-write the `passInfos.N.defines` array via `asset-graphql setProperty` (verified: a STRING-array write applies). Do **not** set the define as a property path (`passInfos.0.ENABLE_GLTF_LIGHTING`) — that's the silent no-op described above.
+- **`UnlitMaterialPreset`'s `baseTex` slot is gated behind `ENABLE_BASE_TEX`, which is OFF by default.** With the define off the slot is hidden and a `setProperty` on `passInfos.N.baseTex` reads back `null` (it does not bind — and the assignment does not auto-add the define here). Enable the define first (write `passInfos.N.defines`, see above), then set `baseTex`: it binds and renders the texture normally. (Verified in LS 5.25 — the texture does render; it does not show a magenta tile.)
+- **No reflection probe in Preview** → a high-`metallic` surface with nothing to reflect samples **black/flat**. Keep water/metal `metallic ~0–0.1` and get glint from low `roughness ~0.1–0.25` + a ripple normal. A cubemap on a planar `reflectionTex` (`ENABLE_SIMPLE_REFLECTION`) logs `texture has different texture type with uniform` — that slot takes a 2D texture only.
+
 ## Assigning a Material to an Object
 
 Materials are assigned to a **RenderMeshVisual component**, not to the scene object directly:

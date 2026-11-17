@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # Specs runtime patterns (extracted from the build flow)
 
-Specs/Lens runtime patterns extracted from the `specs-experience-builder` build flow — its Hard Rule / Phase numbers are cited as-is; full code snippets for §8–§10 live in `ls-clad/agents/references/essential-patterns-code.md`.
+Specs/Lens runtime patterns extracted from the `specs-experience-builder` build flow — its Hard Rule / Phase numbers are cited as-is; full code snippets for §8–§10 live in `ls-clad/references/essential-patterns-code.md`.
 
 ## §1 Component boilerplate
 ```typescript
@@ -17,10 +17,10 @@ export class MyScript extends BaseScriptComponent {
 }
 ```
 
-## §2 SIK imports — always use `.lspkg`
+## §2 IK imports — always use `.lspkg`
 ```typescript
-import { Interactable } from 'SpectaclesInteractionKit.lspkg/Components/Interaction/Interactable/Interactable';
-import { InteractorEvent } from 'SpectaclesInteractionKit.lspkg/Core/Interactor/InteractorEvent';
+import { Interactable } from 'InteractionKit.lspkg/Components/Interaction/Interactable/Interactable';
+import { InteractorEvent } from 'InteractionKit.lspkg/Core/Interactor/InteractorEvent';
 ```
 
 ## §3 requireAsset — inline asset references
@@ -44,12 +44,12 @@ if (!isNull(this.targetObject)) { /* safe */ }
 ```
 Truthy checks pass on destroyed engine objects.
 
-## §6 SIK components in code — `import` + `getTypeName()`
+## §6 IK components in code — `import` + `getTypeName()`
 ```typescript
-import { Interactable } from 'SpectaclesInteractionKit.lspkg/...';
+import { Interactable } from 'InteractionKit.lspkg/...';
 obj.createComponent(Interactable.getTypeName());
 ```
-Do NOT use `requireType`. UIKit components (BackPlate, Frame, FlexLayout, ElementContent, Button) are composed by `/specs-build-ui` inside `*UI.ts` modules — never use them in the main or controller scripts.
+Do NOT use `requireType`. UIKit components (Frame, RoundedRectangle, FlexLayout, ElementContent, Button) are composed by `/specs-build-ui` inside `*UI.ts` modules — never use them in the main or controller scripts.
 
 ## §7 Authored-scene script pattern
 
@@ -89,19 +89,19 @@ export class Main extends BaseScriptComponent {
     }
     // buildScene() uses the wrapper pattern (Hard Rule 6.2); setColliderDebugAll
     // is the recursive walker (Hard Rule 6.7). Full implementation:
-    // ls-clad/agents/references/entry-script-boilerplate.md — consult at write time.
+    // ls-clad/references/entry-script-boilerplate.md — consult at write time.
 }
 ```
 
-The full `buildScene()` wrapper-pattern body and the `setColliderDebugAll` walker live in `ls-clad/agents/references/entry-script-boilerplate.md`. Both are load-bearing — read that reference before writing the main script.
+The full `buildScene()` wrapper-pattern body and the `setColliderDebugAll` walker live in `ls-clad/references/entry-script-boilerplate.md`. Both are load-bearing — read that reference before writing the main script.
 
 ## §8 SFX playback
-**Rule:** interactive SFX (button press, hit confirm, anything tied to user input) → set `audio.playbackMode = Audio.PlaybackMode.LowLatency`. Specs defaults every `AudioComponent` to `LowPower`, which adds playback latency you hear as a lag after the tap; set `LowLatency` only for input-reactive cues (higher device power). See `/specs-audio`. Full snippet: `ls-clad/agents/references/essential-patterns-code.md` §8.
+**Rule:** interactive SFX (button press, hit confirm, anything tied to user input) → set `audio.playbackMode = Audio.PlaybackMode.LowLatency`. Specs defaults every `AudioComponent` to `LowPower`, which adds playback latency you hear as a lag after the tap; set `LowLatency` only for input-reactive cues (higher device power). See `/specs-audio`. Full snippet: `ls-clad/references/essential-patterns-code.md` §8.
 
 ## §9 Background-music playback (looping bed)
-**Rule:** `AudioComponent` does not auto-play — the main script calls `play(-1)` in `onAwake()` to loop the bed indefinitely, at `volume = 0.4` (well under SFX) and `playbackMode = LowPower` (beds tolerate latency; saves power). Start it before `buildScene()` so music begins as the Lens loads; don't route BGM through the bootstrap (a runtime `createSceneObject` keeps the bootstrap surface at two SceneObjects per Hard Rule 5). Full snippet: `ls-clad/agents/references/essential-patterns-code.md` §9.
+**Rule:** `AudioComponent` does not auto-play — the main script calls `play(-1)` in `onAwake()` to loop the bed indefinitely, at `volume = 0.4` (well under SFX) and `playbackMode = LowPower` (beds tolerate latency; saves power). Start it before `buildScene()` so music begins as the Lens loads; don't route BGM through the bootstrap (a runtime `createSceneObject` keeps the bootstrap surface at two SceneObjects per Hard Rule 5). Full snippet: `ls-clad/references/essential-patterns-code.md` §9.
 
 ## §10 Face a direction (moving meshes)
 `/build-mesh` assets are baked to face Lens Studio forward (`-Z`) — see Hard Rule 6.5.
 
-**Rule:** a mesh that *moves* must yaw its baked `-Z` front toward its travel/target vector or it flies belly-/side-first. The helper applies `yaw = Math.atan2(dir.x, -dir.z)` to the **leaf visual** (never the collider wrapper — Hard Rules 6.2–6.4), computed each frame the heading changes. Do **NOT** "simplify" to `atan2(-dir.x, -dir.z)` — that negates the yaw, correct only for ±Z travel and flips ±X movers 180° (tail-first). Yaw-only covers ground movers (vehicles, creatures, enemies on/over a ground plane); for a projectile that also pitches, build a full look-rotation toward `dir` instead. Full snippet: `ls-clad/agents/references/essential-patterns-code.md` §10.
+**Rule:** a mesh that *moves* must yaw its baked `-Z` front toward its travel/target vector or it flies belly-/side-first. The helper applies `yaw = Math.atan2(dir.x, -dir.z)` to the **leaf visual** (never the collider wrapper — Hard Rules 6.2–6.4), computed each frame the heading changes. Do **NOT** "simplify" to `atan2(-dir.x, -dir.z)` — that negates the yaw, correct only for ±Z travel and flips ±X movers 180° (tail-first). Yaw-only covers ground movers (vehicles, creatures, enemies on/over a ground plane); for a projectile that also pitches, build a full look-rotation toward `dir` instead. Full snippet: `ls-clad/references/essential-patterns-code.md` §10.

@@ -44,6 +44,10 @@ If your goal is a 2D-looking game or visualization, you have two viable approach
 | **3D objects + orthographic camera** | You want physics, mesh colliders, or 3D lighting on flat-looking objects | Manually configured orthographic (see above) | RenderMeshVisual with plane/box meshes |
 | **Screen-space (ScreenTransform)** | You want UI-style layout with anchors, text, and Image components | `OrthographicCameraObjectPreset` (with Canvas) | ScreenImage/ScreenText presets |
 
+### Prefer `Text` over `Text3D`
+
+`Text3D` renders **extruded 3D geometry** and is comparatively expensive — reach for it only when you genuinely need dimensional/extruded lettering. For almost all labels, HUDs, scores, and banners a plain **`Text`** component is the cheaper, more legible choice. *How* you place UI text (screen-space vs. world-space, a preset vs. a UI framework) is platform-specific — follow your platform's UI guidance for the exact setup.
+
 ## Creating Screen-Space Objects
 
 Screen-space objects require preset creation — not manual SceneObject + component assembly.
@@ -51,8 +55,10 @@ Screen-space objects require preset creation — not manual SceneObject + compon
 Key requirements for screen-space Image objects:
 
 - **Use presets, not ExecuteEditorCode** — always use `createSceneObjectFromPreset` via scene-graphql.
-- **Default Image material** — preset-created Images come with a default material configured for screen-space compositing (`PremultipliedAlphaAuto` blend mode, `baseTex` texture slot). Custom UnlitMaterials will not render correctly on screen-space Image components. To change an Image's color, modify the default material's `baseColor` property rather than replacing the material.
+- **Default Image material** — preset-created Images come with a default material configured for screen-space compositing (`PremultipliedAlphaAuto` blend mode, `baseTex` texture slot). Custom UnlitMaterials will not render correctly on screen-space Image components. To change an Image's color, modify the default material's **main-pass** color at `passInfos.0.baseColor` (a top-level `baseColor` set fails — it's a shader-graph material tinting a white base texture) rather than replacing the material.
 - **Parent hierarchy** — screen-space objects must be children (direct or nested) of a camera that has a Canvas component. Objects outside this hierarchy will not render.
+
+Need the 2D image itself? `/build-image` (the `ls-clad:build-image` skill) generates one from a text prompt to `Assets/GeneratedImages/<Name>.png` — assign it as the Image's texture, or use it as a material `baseTex`.
 
 ## Perspective Camera (3D, Default)
 
@@ -91,6 +97,14 @@ mutation {
 ```
 
 The `id` must be the RenderMeshVisual **component** ID, not the scene object ID. Query the object's `components` field to get the component ID if unknown.
+
+## Visibility Pre-Flight (run BEFORE claiming an object renders)
+
+An object that exists in the scene graph is not the same as an object that renders. Before you report that an object is visible or that a build renders, proactively confirm every check in **Visibility Debugging** below — treat it as a sign-off gate, not just a reactive debug list — **plus one the debug list omits:**
+
+- **Non-zero scale on all axes** — a sub-cm or zero scale renders as an invisible speck. Fix the size at the asset/mesh boundary; never mask it with a compensating `setLocalScale`.
+
+If any check fails, the object is **not** "visible" — fix it before sign-off; do not claim it renders.
 
 ## Visibility Debugging
 

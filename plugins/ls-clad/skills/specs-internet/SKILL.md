@@ -21,7 +21,7 @@ SPDX-License-Identifier: Apache-2.0
 
 Reference: `Fetch/`, `Snap Cloud World Kindness Day/`
 
-**Full TypeScript examples** (copied verbatim from Specs samples) live in [`resources/examples/`](resources/examples/README.md):
+**Full TypeScript examples** (copied verbatim from Specs samples) live in [`references/examples/`](references/examples/):
 - `examples/Fetch/` — `FetchCatFacts.ts`, `CatFactAnimator.ts`, `Events.ts` (HTTP GET + JSON + typed event bus)
 - `examples/InternetAvailability/` — `InternetAvailabilityPopUp.ts`, `NoInternetDisplay.ts` (offline UX patterns)
 - `examples/DirectAI/` — call OpenAI / Gemini / Anthropic / DeepSeek **directly** via `InternetModule.fetch`, bypassing the Remote Service Gateway. BYO API key, prototype-only — see folder README. For published Lenses, use the `specs-ai-remote-service` skill (RSG). Snap3D and Lyria are RSG-only (no public direct endpoint).

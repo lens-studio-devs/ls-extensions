@@ -15,13 +15,13 @@ After a successful Specs build the router surfaces the builder's report, runs th
 | Test ("write tests", "test it on device") | `ls-clad:live-lens-tester` agent | Test degrades; everything else still runs |
 | Optimize ("make it faster", "reduce draw calls") | `ls-clad:specs-optimize-lens-mesh` or the perf pipeline | Optimize degrades |
 | Publish ("ship it", "submit") | `ls-clad:specs-publish` skill | Publish degrades |
-| Followup change ("remake the UI", "add X") | `ls-clad:specs-experience-builder` agent (fresh spawn) | Inline-degrade per the split above |
+| Followup change ("remake the UI", "add X") | `ls-clad:specs-build-experience` skill (fresh run) | Skill serves all runtimes; if genuinely absent the install is partial |
 
 ## Verify
 
 Invoke the `ls-clad:verify-preview` skill — a read-only QA pass on the *currently running* scene (writes nothing): capture, drive one interaction, check logs, judge against `original_request`. If the skill is missing, verification still happens — run `lens-studio-field-notes` → See-and-fix loop directly (`RecompileTypeScriptTool`, `RunAndCollectLogsTool`, `CaptureRuntimeViewTool`, Read the capture and judge it).
 
-If verification finds blockers and the user wants them fixed, spawn the builder in fix mode (below).
+If verification finds blockers and the user wants them fixed, invoke `ls-clad:specs-build-experience` in fix mode (below).
 
 ## Test (LEAF)
 
@@ -78,7 +78,7 @@ Each invocation exports a fresh package, so retrying after the user fixes a prer
 
 ## Followup change
 
-Spawn `ls-clad:specs-experience-builder` fresh with the user's new ask:
+Invoke the `ls-clad:specs-build-experience` skill fresh with the user's new ask:
 
 ```
 HANDOFF_PAYLOAD
@@ -86,17 +86,18 @@ HANDOFF_PAYLOAD
 - project_path: <absolute path to .esproj>
 - project_state: existing-with-prior-build
 - mcp_status: ready
+- is_authorized: <true | false | unknown — re-read in this turn's Gate>
 - original_request: <verbatim followup text — what they want changed/added>
 - prior_request: <the request that produced the current build, for context only>
 
 The project already has a built scene from the prior pass. Treat `original_request` as the new authoritative ask. Re-use existing assets/scripts where they still apply; re-generate only what the new ask changes. Re-run your self-audit before reporting.
 ```
 
-After the builder returns, verify the changed build per the See-and-fix loop and re-offer the suggestion line.
+After the orchestrator returns, verify the changed build per the See-and-fix loop and re-offer the suggestion line.
 
 ## Fix mode (after a failed verify)
 
-When verification flagged blockers and the user wants them fixed, spawn `ls-clad:specs-experience-builder` with:
+When verification flagged blockers and the user wants them fixed, invoke the `ls-clad:specs-build-experience` skill with:
 
 ```
 HANDOFF_PAYLOAD

@@ -79,8 +79,8 @@ const worldScale = transform.getWorldScale();
 transform.setWorldScale(new vec3(1, 1, 1));
 
 // Direction vectors (world space)
-const forward = transform.forward;   // -Z direction
-const back = transform.back;         // +Z direction
+const forward = transform.forward;   // +Z direction
+const back = transform.back;         // -Z direction
 const up = transform.up;             // +Y direction
 const down = transform.down;         // -Y direction
 const right = transform.right;       // +X direction
@@ -119,8 +119,9 @@ const text = sceneObj.getComponent('Component.Text') as Text;
 text.text = 'Hello World';
 text.size = 48;
 text.textFill.color = new vec4(1, 1, 1, 1);
-text.horizontalAlignment = HorizontalAlignment.Center;
-text.verticalAlignment = VerticalAlignment.Center;
+text.weight = 700; text.italic = true;      // first-class; no <b>/<i> tags needed
+text.enableRichText = true;                 // required, or markup prints verbatim
+// alignment/overflow/defaults for Component.Text live in StudioLib.d.ts; see references/2d-ui.md
 ```
 
 ### Image
@@ -190,6 +191,8 @@ transform.setLocalPosition(
 
 ## Tween/Animation
 
+> **Specs:** animate with Lens Studio's native animation system: an `AnimationCurve` easing curve on an `AnimationAsset`, played by an `AnimationPlayer`. No package or npm library is needed. Example and gotchas: `animation-playback.md` → "Script-built tweens"; worked examples in the `AnimationExamples` package.
+>
 > **Note:** TWEEN is not built into Lens Studio. It requires importing the `@tweenjs/tween.js` npm package into your project.
 
 ```typescript

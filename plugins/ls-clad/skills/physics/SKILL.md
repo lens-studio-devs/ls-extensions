@@ -39,7 +39,7 @@ Three-layer model — skipping a layer is where most bugs come from.
 
 - **Collider sweet spot: 10 cm – 5 m** under default gravity. Lens Studio has no continuous collision detection — below 10 cm, fast bodies tunnel through static colliders.
 - **Mitigations for fast scenes**: raise `worldSettings.simulationRate` (default 60, valid 30–240 step 30) to 120/240, or set `absoluteSpeedLimit` / `relativeSpeedLimit`.
-- **Units are centimeters.** Default gravity `(0, -980, 0)` cm/s². **Right-handed**: +X right, +Y up, **−Z forward**.
+- **Units are centimeters.** Default gravity `(0, -980, 0)` cm/s². **Right-handed coordinate system**: +X cross +Y gives +Z. The vec3 constant `forward` is defined as `(0, 0, 1)` (+Z).
 - **Object budget**: ~200 dynamic bodies on mobile, ~100 on Spectacles 2021.
 - **Mesh shapes**: `shape.convex = true` is **required** on dynamic bodies (engine bakes a convex hull; concavity collapses). For concave dynamic geometry, use a compound of primitives. Mesh-vs-mesh is the most expensive contact pair.
 - **`fitVisual` only works on Box and Sphere** — Capsule/Cylinder/Cone/Mesh silently ignore it. `Plane.mesh` has 0 thickness on Y, so `fitVisual` on a flat floor produces a zero-thickness slab that bodies fall through. Static floors/walls need ≥ 20 cm explicit thickness on the contact axis.

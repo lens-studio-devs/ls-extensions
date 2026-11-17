@@ -10,107 +10,33 @@ SPDX-License-Identifier: Apache-2.0
 
 # Reset Preview Environment
 
-## Step 1: Survey and Reset via ExecuteEditorCode
+Use the path-backed actions in this skill rather than editing inline `ExecuteEditorCode` constants.
+Pass per-call values as structured runtime `args`.
 
-Delegate to the `editor-api-specialist` agent to survey the scene and reset the camera in a single call:
+## Step 1: Survey and reset
 
-```typescript
-try {
-    const results: string[] = [];
+Delegate to `editor-api-specialist` to call `ExecuteEditorCode` with the absolute `path` to `actions/survey-and-reset.ts`. Pass the camera names as ordinary JSON data, for example:
 
-    // Find and reset camera
-    let camera = scene.sceneObjects.find(
-        (o: Editor.Model.SceneObject) => o.name === 'Camera'
-    );
-    if (!camera) {
-        camera = scene.sceneObjects.find(
-            (o: Editor.Model.SceneObject) => o.name === 'Main Camera'
-        );
-    }
-
-    if (camera) {
-        camera.localTransform.position = new vec3(0, 0, 0);
-        camera.localTransform.rotation = new vec3(0, 0, 0);
-        results.push(`Reset camera: ${camera.name}`);
-    } else {
-        results.push('Warning: No Camera found');
-    }
-
-    // List all root objects for cleanup analysis
-    const rootNames = scene.rootSceneObjects.map(
-        (o: Editor.Model.SceneObject) => ({
-            name: o.name,
-            id: o.id.toString(),
-            enabled: o.enabled
-        })
-    );
-
-    return JSON.stringify({ camera: results, rootObjects: rootNames });
-} catch (e: any) {
-    return `Failed: ${e.message}`;
-}
+```json
+{ "cameraNames": ["Camera", "Main Camera"] }
 ```
 
-## Step 2: Verify Clean Preview via Screenshot
+The action resets the first matching scene camera to position and Euler rotation `(0, 0, 0)`, then returns the root-object survey. Do not edit action constants. If no configured camera is present, report the warning and continue.
 
-Take a screenshot and visually confirm nothing but the virtual environment is visible.
+## Step 2: Verify a clean preview
 
-**Loop:**
+Capture the preview your later checks will use (pass the same `previewName` they will) using `CapturePanelScreenshotTool` with `pluginId: "Snap.Plugin.Gui.PreviewPanel"`. A clean preview shows only the default virtual environment. If extra 3D meshes, UI, images, or text remain, identify the responsible top-level parents where possible and have `editor-api-specialist` call the absolute `path` to `actions/disable-scene-objects.ts`:
 
-1. Capture the Preview panel using `CapturePanelScreenshotTool` with `pluginId: "Snap.Plugin.Gui.PreviewPanel"`.
-2. Analyze the screenshot. A clean preview shows only the default virtual environment (skybox, ground plane, ambient lighting). Any 3D meshes, UI panels, images, text, or other rendered content means the preview is **not** clean.
-3. If the preview is clean, exit the loop and proceed to Step 3.
-4. If extra visual content is detected, delegate to the `editor-api-specialist` agent to disable the responsible objects:
-
-```typescript
-try {
-    const toDisable = ['<object-name-1>', '<object-name-2>'];
-    const disabled: string[] = [];
-
-    for (const name of toDisable) {
-        const obj = scene.sceneObjects.find(
-            (o: Editor.Model.SceneObject) => o.name === name
-        );
-        if (obj) {
-            obj.enabled = false;
-            disabled.push(name);
-        }
-    }
-
-    return JSON.stringify({ disabled });
-} catch (e: any) {
-    return `Failed: ${e.message}`;
-}
+```json
+{ "objectNames": ["<top-level-object-name-1>", "<top-level-object-name-2>"] }
 ```
 
-5. Return to step 1 of this loop and take a new screenshot to confirm.
-6. Repeat until the preview is confirmed clean, up to a maximum of **5 iterations**. If still not clean after 5 passes, warn the user and list the remaining visible content.
+The explicit object-name array is invocation data, not source substitution. Re-capture and inspect after each call, for at most five iterations. If the preview remains unclean, warn the user and list the visible content.
 
-## Step 3: Baseline Logs
+## Step 3: Baseline logs
 
-Delegate to the `editor-api-specialist` to get the log file path via `ExecuteEditorCode`:
-
-```ts
-const FS = await import("LensStudio:FileSystem");
-return FS.getLogFile().toString();
-```
-
-Use Read on the returned path to note the current file length — this offset filters for only new entries generated during the build.
+Call `ExecuteEditorCode` with the absolute `path` to `actions/get-log-file.ts`. It returns `{ ok: true, logPath }`. Read that path and record its current file length as the baseline offset for entries generated during subsequent scene work.
 
 ## Completion
 
-Report:
-- Camera reset status
-- Whether the preview was already clean or required cleanup
-- Names of any scene objects that were disabled
-- Number of screenshot iterations taken
-- Log baseline timestamp
-
----
-
-## Notes
-
-- If no Camera is found, warn the user but continue — the scene may not have an explicit camera object
-- When choosing which objects to disable, prefer disabling top-level parents over individual children — disabling a parent disables its entire subtree.
-- Do not disable objects that are part of the permanent environment setup (e.g., lighting rigs, skybox, device camera feeds, tracking nodes).
-- This skill is idempotent — re-running it is safe.
+Report the camera reset result, whether cleanup was required, disabled object names, screenshot iteration count, and log baseline timestamp. Do not disable permanent environment setup such as lighting rigs, skybox, device camera feeds, or tracking nodes. The reset is idempotent.

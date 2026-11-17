@@ -1,6 +1,6 @@
 ---
 name: specs-interaction-recipes
-description: All Specs hand-interaction guidance — SIK + GestureModule. Load for ANY hand interaction — buttons, hover, tap, swipe, throw, spring-returning grabs, pinch-pull, palm-tap menus, phone-controller switching, inventing a new gesture, or debugging 'my SIK event listener isn't firing'. Includes the init-order rule — SIK / `HandInputData` / `GestureModule` subscriptions must bind inside `OnStartEvent`, not `onAwake`.
+description: All Specs hand-interaction guidance — InteractionKit (IK) + GestureModule. Load for ANY hand interaction — buttons, hover, tap, swipe, throw, spring-returning grabs, pinch-pull, palm-tap menus, phone-controller switching, inventing a new gesture, or debugging 'my IK event listener isn't firing'. Includes the init-order rule — IK / `HandInputData` / `GestureModule` subscriptions must bind inside `OnStartEvent`, not `onAwake`.
 user-invocable: false
 ---
 <!--
@@ -10,26 +10,26 @@ SPDX-License-Identifier: Apache-2.0
 
 # Interaction Recipes — Specs Hand Interactions
 
-This skill owns all hand interactions for Specs: the SIK primer in §1, the editor-mock decision rule in §2 (get this wrong and you double-fire callbacks in Editor), the routing table in §3, the drop-in basic recipes in §4–§5 (`TapInteraction`, `DragInteraction`), and the composite recipes in §6–§8 (swipe, throw, grab-pull) which build on raw hand data and therefore each carry their own editor mock. Composite recipes are **reference templates**, not a closed catalog — drop one in as-is, tweak the `CONFIG`, override the public hooks, or compose your own from the shared building blocks in §9. Prefer deriving over reinventing.
+This skill owns all hand interactions for Specs: the IK primer in §1, the editor-mock decision rule in §2 (get this wrong and you double-fire callbacks in Editor), the routing table in §3, the drop-in basic recipes in §4–§5 (`TapInteraction`, `DragInteraction`), and the composite recipes in §6–§8 (swipe, throw, grab-pull) which build on raw hand data and therefore each carry their own editor mock. Composite recipes are **reference templates**, not a closed catalog — drop one in as-is, tweak the `CONFIG`, override the public hooks, or compose your own from the shared building blocks in §9. Prefer deriving over reinventing.
 
-## 1. Core SIK primer
+## 1. Core IK primer
 
-These are the SpectaclesInteractionKit primitives every Specs interaction is built on. Use them directly for basic buttons / draggables / hover feedback, or as the Specs-side building blocks of the composite recipes in §6–§8.
+These are the InteractionKit primitives every Specs interaction is built on. Use them directly for basic buttons / draggables / hover feedback, or as the Specs-side building blocks of the composite recipes in §6–§8.
 
 ### Core imports
 
 ```typescript
-import { Interactable } from "SpectaclesInteractionKit.lspkg/Components/Interaction/Interactable/Interactable"
-import { InteractableManipulation } from "SpectaclesInteractionKit.lspkg/Components/Interaction/InteractableManipulation/InteractableManipulation"
-import { HandInputData } from "SpectaclesInteractionKit.lspkg/Providers/HandInputData/HandInputData"
-import WorldCameraFinderProvider from "SpectaclesInteractionKit.lspkg/Providers/CameraProvider/WorldCameraFinderProvider"
-import animate from "SpectaclesInteractionKit.lspkg/Utils/animate"
-import Event from "SpectaclesInteractionKit.lspkg/Utils/Event"
+import { Interactable } from "InteractionKit.lspkg/Components/Interaction/Interactable/Interactable"
+import { InteractableManipulation } from "InteractionKit.lspkg/Components/Interaction/InteractableManipulation/InteractableManipulation"
+import { HandInputData } from "InteractionKit.lspkg/Providers/HandInputData/HandInputData"
+import WorldCameraFinderProvider from "InteractionKit.lspkg/Providers/CameraProvider/WorldCameraFinderProvider"
+import animate from "InteractionKit.lspkg/Utils/animate"
+import Event from "InteractionKit.lspkg/Utils/Event"
 ```
 
-Always import from `SpectaclesInteractionKit.lspkg/...` — never from a relative path or the unpackaged source.
+Always import from `InteractionKit.lspkg/...` — never from a relative path or the unpackaged source.
 
-### Subscribe to SIK events inside `OnStartEvent`, not directly in `onAwake`
+### Subscribe to IK events inside `OnStartEvent`, not directly in `onAwake`
 
 ```typescript
 @component
@@ -41,7 +41,7 @@ export class NewScript extends BaseScriptComponent {
         // handle exists at scene load.
         this.interactable = this.sceneObject.getComponent(Interactable.getTypeName());
 
-        // Subscribe to SIK events inside OnStartEvent.
+        // Subscribe to IK events inside OnStartEvent.
         this.createEvent("OnStartEvent").bind(() => {
             this.interactable.onTriggerStart.add(() => {
                 print("Start");
@@ -55,17 +55,29 @@ export class NewScript extends BaseScriptComponent {
 
 | Operation | Where it goes |
 |---|---|
-| `getComponent` / `createComponent` of any SIK component | `onAwake` |
-| Property assignment on a freshly-created SIK component (e.g. `interactable.targetingMode = 1`) | `onAwake` |
+| `getComponent` / `createComponent` of any IK component | `onAwake` |
+| Property assignment on a freshly-created IK component (e.g. `interactable.targetingMode = 1`) | `onAwake` |
 | `HandInputData.getInstance()` and `handProvider.getHand("left"\|"right")` | `onAwake` |
 | `require("LensStudio:GestureModule")` (typically a class-field init) | `onAwake` |
-| `this.createEvent("UpdateEvent" \| "TouchStartEvent" \| "KeyPressEvent" \| …)` — these are `BaseScriptComponent` lifecycle hooks, not SIK events | `onAwake` |
+| `this.createEvent("UpdateEvent" \| "TouchStartEvent" \| "KeyPressEvent" \| …)` — these are `BaseScriptComponent` lifecycle hooks, not IK events | `onAwake` |
 | `.add(...)` on **any** `Interactable` event (`onTriggerStart`, `onTriggerEnd`, `onTriggerEndOutside`, `onTriggerCanceled`, `onHoverEnter`, `onHoverExit`) | inside `createEvent("OnStartEvent").bind(...)` |
 | `.add(...)` on **any** `InteractableManipulation` event (`onManipulationStart`, `onManipulationEnd`) | inside `createEvent("OnStartEvent").bind(...)` |
 | `.add(...)` on hand-side pinch events (`hand.onPinchDown`, `onPinchUp`, `onPinchCancel`) | inside `createEvent("OnStartEvent").bind(...)` |
 | `.add(...)` on any `GestureModule.get*Event(...)` (`getGrabBeginEvent`, `getGrabEndEvent`, `getPalmTapDownEvent`, `getPinchStrengthEvent`, `getTargetingDataEvent`, `getIsPhoneInHandBeginEvent`, `getFilteredPinch*Event`, …) | inside `createEvent("OnStartEvent").bind(...)` |
 
-Every code example below — and every reference script in `resources/scripts/` — follows this pattern.
+Every code example below — and every reference script in `references/scripts/` — follows this pattern.
+
+### Space adjacent tappable controls apart
+
+IK picks the single closest interactable to the fingertip (with a ~1.5 cm
+tolerance radius). So when two controls' hit zones overlap they compete for the
+same pinch, and the loser looks dead. Keep hit zones from overlapping rather
+than picking a winner: space adjacent tappables at least ~1.5x the larger
+control's width center-to-center (in a FlexLayout/GridLayout, use gap/padding).
+Ordering in +Z only matters when you deliberately stack controls in one
+footprint (e.g. a close button over a tappable card) — put the foreground one
+nearer in +Z; Flex/Grid preserve each child's local Z. If a co-located control
+reliably "doesn't respond," suspect an overlapping neighbor before the wiring.
 
 ### Hand tracking
 
@@ -89,7 +101,7 @@ const camTransform = camera.getComponent().getTransform()
 
 ### Interactable (pinch / hover on an object)
 
-`Interactable` makes a scene object respond to SIK interactors. Create programmatically — no `@input` wiring needed. Object must have a `ColliderComponent` (auto-create if missing — see `PinchPullReleaseInteraction.ts` for the pattern).
+`Interactable` makes a scene object respond to IK interactors. Create programmatically — no `@input` wiring needed. Object must have a `ColliderComponent` (auto-create if missing — see `PinchPullReleaseInteraction.ts` for the pattern).
 
 ```typescript
 onAwake() {
@@ -100,21 +112,57 @@ onAwake() {
 }
 ```
 
-Also available: `onTriggerEnd`, `onHoverEnter`, `onHoverExit` — same shape. All subscribe inside `OnStartEvent` (see §1 "Subscribe to SIK events inside `OnStartEvent`" above).
+Also available: `onTriggerEnd`, `onHoverEnter`, `onHoverExit` — same shape. All subscribe inside `OnStartEvent` (see §1 "Subscribe to IK events inside `OnStartEvent`" above).
 
-### Interactor types — SIK already dual-paths Interactables for you
+### Binding to another object's Interactable (cross-script)
+
+To reach another object's IK trigger events (`onTriggerStart` / `onTriggerEnd` / `onTriggerCanceled`), get its `Interactable` from IK, not from a script: `IK.InteractionManager.getInteractableBySceneObject(host)` (the package's `IK` entry export) returns the object's `Interactable` (`onTriggerEnd` is the canonical "clicked" signal). Don't look for it on a sibling script's `.api`; that only holds what a script chose to expose, and an `Interactable` is an IK component, not a published script member, so it won't be there. Two init-order catches, same family as the `OnStartEvent` rule above:
+
+- It matches only the exact SceneObject; if the `Interactable` sits on a child, walk the subtree.
+- The target `Interactable`'s IK registration isn't guaranteed to be complete when the binding script's `OnStartEvent` runs — cross-sibling `OnStartEvent` order isn't guaranteed, and an `Interactable` created at runtime registers later still — so the lookup can return null on the first frame. Retry from an `UpdateEvent` for a frame or two until it resolves, then subscribe.
+
+### Interactor types — IK already dual-paths Interactables for you
 
 `Interactable` callbacks (`onTriggerStart`, `onHoverEnter`, …) are fired by whichever `Interactor` is active on the current platform — you bind once and it works everywhere:
 
 | Interactor | Active when | What it does |
 |---|---|---|
 | `HandInteractor` | Running on a Specs device | Hand pinch / targeting ray → fires `Interactable` events |
-| `MouseInteractor` | Running in Lens Studio Editor Preview | Mouse click on the preview area → fires `Interactable` events. v0.12.0+ adds `moveInDepth` / `moveInDepthAmount` Inspector inputs for testing 3D depth interaction |
+| `MouseInteractor` | Running in Lens Studio Editor Preview | Mouse click on the preview area → fires `Interactable` events. Its `moveInDepth` / `moveInDepthAmount` Inspector inputs test 3D depth interaction |
 | `MobileInteractor` | Specs paired with the Snap mobile app, phone-as-controller | Phone tracking + on-screen button → fires `Interactable` events |
 
-**Implication:** if your interaction is built on `Interactable` or `InteractableManipulation`, you do NOT need to add a manual `TouchStartEvent` / `TapEvent` editor mock. SIK's `MouseInteractor` handles editor preview automatically. Adding a manual mock on top causes **double-firing** in editor (MouseInteractor fires `onTriggerStart`, your `TapEvent` handler fires the same callback again).
+**Implication:** if your interaction is built on `Interactable` or `InteractableManipulation`, you do NOT need to add a manual `TouchStartEvent` / `TapEvent` editor mock. IK's `MouseInteractor` handles editor preview automatically. Adding a manual mock on top causes **double-firing** in editor (MouseInteractor fires `onTriggerStart`, your `TapEvent` handler fires the same callback again).
 
 Manual editor mocking IS required for the composite recipes in §6–§8, because they subscribe to raw `HandInputData` (`hand.onPinchDown`, wrist position) and raw `GestureModule` events — and those raw events do NOT fire in Lens Studio Editor. See §2 for the decision rule and §9 for the camera-relative 2D-to-3D primitive the recipes use.
+
+### Hit-testing — which collider wins
+
+When colliders overlap (common in nested UIKit panels), the target is not always
+the nearest one:
+
+- **A descendant Interactable is the primary target, but the cascade still
+  reaches the ancestor.** `InteractionManager` uses a bubble-up/trickle-down
+  cascade, so a tappable row inside a tappable card is the row's tap — yet the
+  card's `Interactable` *also* receives the event. Nesting does **not** isolate
+  handlers; guard against double-handling, or make independently-tappable
+  elements *siblings*, not nested.
+- **Near-field poke is a small spherecast (a fixed IK-internal radius on the
+  order of a centimeter; verify against the installed IK), not a ray**, and it ignores
+  nesting depth — it can catch an ancestor behind a child. Prefer sibling layout
+  over deep nesting for pokeable controls.
+- **`targetingPriority` is the cross-hierarchy override** — raise it
+  (`High`) on the collider that should win regardless of nesting.
+- **`inactive` removes an element from hit-testing** (a real removal, not just a
+  visual dim), but it is **not recursive** — disabling a container does not
+  disable pokeable descendants; sweep them too, or disable their SceneObjects.
+- **A collider in front of the target eats the ray.** IK indirect (ray)
+  targeting and the Editor `MouseInteractor` both cast from the interactor, so a
+  large collider (wall, floor slab, oversized environment mesh) between the
+  camera/wearer and a correctly-wired element blocks targeting even though the
+  element is in reach and fully wired. Direct on-device hand-touch is unaffected,
+  so it reads as a Preview-only mystery — "it's right there and wired, but
+  clicking it does nothing." Fix: disable occluding colliders that serve no
+  physics purpose.
 
 ### InteractableManipulation (grab and move)
 
@@ -136,7 +184,7 @@ onAwake() {
 animate({ duration: 0.3, easing: "ease-out-quad", update: (t) => { /* lerp scale, position, etc. */ }, ended: () => {} })
 ```
 
-Easings: `linear`, `ease-{in|out|in-out}-quad`, `ease-{in|out|in-out}-back`. For release momentum (recipes need it), use §9 `SpringAnimate` instead.
+`easing` takes a key of `easingFunctions` in IK's `Utils/animate` (e.g. `linear`, `ease-out-quad`, `ease-out-back`). For release momentum (recipes need it), use §9 `SpringAnimate` instead.
 
 ### Event<T> — typed component-to-component signals
 
@@ -148,14 +196,14 @@ otherComp.onActionComplete.add(({ result }) => print(result)) // subscriber bind
 
 ### GestureModule — raw Lens Studio gesture events
 
-`HandInputData` (above) wraps the most common SIK-mediated pinch events. Drop down to Lens Studio's raw `GestureModule` for events SIK doesn't surface: fist-grab (used by §8 `GrabPullReleaseInteraction`), palm tap, pinch strength curve, targeting ray, phone-in-hand. Setup:
+`HandInputData` (above) wraps the most common IK-mediated pinch events. Drop down to Lens Studio's raw `GestureModule` for events IK doesn't surface: fist-grab (used by §8 `GrabPullReleaseInteraction`), palm tap, pinch strength curve, targeting ray, phone-in-hand. Setup:
 
 ```typescript
 private gestureModule: GestureModule = require('LensStudio:GestureModule')
 
 onAwake() {
     // require() is safe as a class-field init; subscriptions go inside OnStartEvent
-    // (see §1 "Subscribe to SIK events inside OnStartEvent").
+    // (see §1 "Subscribe to IK events inside OnStartEvent").
     this.createEvent("OnStartEvent").bind(() => {
         // Representative example — fist-grab (§8 GrabPullReleaseInteraction uses this).
         // For the full API surface see the table below.
@@ -184,16 +232,16 @@ Specs experiences need to be testable in Lens Studio Editor without a headset. *
 
 | Your interaction is built on… | Editor support comes from… | Add manual mock? |
 |---|---|---|
-| `Interactable` / `InteractableManipulation` / free-space gesture | SIK's `MouseInteractor` / `Interactor.onTriggerStart` | **No.** (Interactable and free-space cases covered in §1 Interactor types) |
+| `Interactable` / `InteractableManipulation` / free-space gesture | IK's `MouseInteractor` / `Interactor.onTriggerStart` | **No.** (Interactable and free-space cases covered in §1 Interactor types) |
 | Raw `HandInputData` events (`hand.onPinchDown`, `hand.onPinchUp`, `wrist.position` tracking) — chosen for wrist-stable tracking or per-hand separation | Nothing automatic — raw hand events don't fire in Editor | **Yes.** Bind `TouchStartEvent` / `TouchMoveEvent` / `TouchEndEvent` + Shift key for a 2D-to-3D mock. See §9. |
 | Raw `GestureModule` events (`getGrabBeginEvent`, palm-tap, targeting ray, pinch strength, phone-in-hand) | Nothing automatic — these are hand-tracking-only on Specs. See §1 `GestureModule` subsection. | **Yes.** Same as above. |
-| Mixed (e.g. `Interactable` for grab-start + raw `wrist.position` for motion delta) | `Interactable` part: MouseInteractor. Motion part: nothing. | **Yes, partial.** Let SIK fire trigger events; add a TouchMove-based mock for the motion delta. See `PinchPullReleaseInteraction.ts`. |
+| Mixed (e.g. `Interactable` for grab-start + raw `wrist.position` for motion delta) | `Interactable` part: MouseInteractor. Motion part: nothing. | **Yes, partial.** Let IK fire trigger events; add a TouchMove-based mock for the motion delta. See `PinchPullReleaseInteraction.ts`. |
 
 For a complete button class with named `onPress` hook using `Interactable` + `OnStartEvent`, see §4 `TapInteraction.ts` (drop-in) or the §1 "Interactable" subsection for the inline `createComponent` + `.add(...)` pattern.
 
 ### Free-space gesture — no Interactable, no manual mock
 
-When the user pinches/clicks anywhere in space (no specific object being targeted) and you need a continuous 3D position while they hold it — mid-air sketching, pinch-to-draw, tap-anywhere-to-spawn — wrapping a giant invisible collider so `Interactable` fires is the wrong shape. Instead, subscribe to the **Interactor's own** `onTriggerStart` event (which fires regardless of target — see [`BaseInteractor.ts:174`](https://github.com/Snapchat/SpectaclesInteractionKit) — note this is the Interactor's event, not the Interactable's) and read `interactor.startPoint` per frame while triggering. SIK's `MouseInteractor` internally uses a `TouchRayProvider` that already binds `TouchStartEvent` / `TouchMoveEvent` / `TouchEndEvent` and exposes the cursor's world-space position continuously, so you do NOT need to bind those events yourself.
+When the user pinches/clicks anywhere in space (no specific object being targeted) and you need a continuous 3D position while they hold it — mid-air sketching, pinch-to-draw, tap-anywhere-to-spawn — wrapping a giant invisible collider so `Interactable` fires is the wrong shape. Instead, subscribe to the **Interactor's own** `onTriggerStart` event (which fires regardless of target — see IK's `BaseInteractor`; get interactors from `IK.InteractionManager.getInteractorsByType(...)` — note this is the Interactor's event, not the Interactable's) and read `interactor.startPoint` per frame while triggering. IK's `MouseInteractor` internally uses a `TouchRayProvider` that already binds `TouchStartEvent` / `TouchMoveEvent` / `TouchEndEvent` and exposes the cursor's world-space position continuously, so you do NOT need to bind those events yourself.
 
 One code path, both platforms: in Editor `MouseInteractor` fires `onTriggerStart` on mouse-down anywhere and its `startPoint` follows the cursor in world space every frame; on Specs `HandInteractor` fires `onTriggerStart` on pinch and its `startPoint` is the pinch point.
 
@@ -206,8 +254,8 @@ One code path, both platforms: in Editor `MouseInteractor` fires `onTriggerStart
 
 When the Specs path subscribes to raw hand data (e.g. `hand.onPinchDown` for swipe detection, `wrist.position` for motion tracking, `GestureModule.getGrabBeginEvent` for fist-grab), the editor has no equivalent input source. You must add a `TouchStartEvent` / `TouchMoveEvent` mock that maps 2D screen drag to camera-relative 3D motion — default vertical drag = Z (depth), with Shift switching vertical drag to Y (height). The canonical implementation is in:
 
-- [`SwipeInteraction.ts:39-42`](resources/scripts/SwipeInteraction.ts:39) — the `onAwake` that calls both `setupSpectaclesInteraction()` and `setupEditorInteraction()`
-- [`SwipeInteraction.ts:119-142`](resources/scripts/SwipeInteraction.ts:119) — the editor-mock body
+- [`SwipeInteraction.ts` (`onAwake`)](references/scripts/SwipeInteraction.ts) — calls both `setupSpectaclesInteraction()` and `setupEditorInteraction()`
+- [`SwipeInteraction.ts` (`setupEditorInteraction`)](references/scripts/SwipeInteraction.ts) — the editor-mock body
 - §9 "Editor-mocking pattern" — the touch + Shift-key → camera-relative 3D primitive every composite recipe reuses
 
 When inventing a new composite recipe, see §9.
@@ -228,23 +276,24 @@ When inventing a new composite recipe, see §9.
 
 ## 4. Recipe: TapInteraction
 
-Drop-in `@component` for object pinch-tap. Wraps SIK's `Interactable` and exposes named hooks. Use this when you want a clean button signal on a single object without re-implementing the `Interactable` binding every time.
+Drop-in `@component` for object pinch-tap. Wraps IK's `Interactable` and exposes named hooks. Use this when you want a clean button signal on a single object without re-implementing the `Interactable` binding every time.
 
-- **Source:** `resources/scripts/TapInteraction.ts`
+- **Source:** `references/scripts/TapInteraction.ts`
 - **Hooks:** `onTap: Event<InteractorEvent>`, `onHoverStart`, `onHoverEnd`
 - **CONFIG:** `autoCreateCollider` (default `true`), `colliderSize` (default 10cm cube), `debugCollider`, `targetingMode` (1=Direct, 2=Indirect, 3=Both)
-- **Editor support:** via SIK `MouseInteractor` (see §2).
+- **Editor support:** via IK `MouseInteractor` (see §2).
 - **Example use — start screen "Begin" button:** attach `TapInteraction` to the button mesh, subscribe `onTap` in the main game script to advance state.
 
 ## 5. Recipe: DragInteraction
 
-Drop-in `@component` for object grab-and-move. Wraps SIK's `Interactable` + `InteractableManipulation` and surfaces named hooks plus a per-frame world position while dragging.
+Drop-in `@component` for object grab-and-move. Wraps IK's `Interactable` + `InteractableManipulation` and surfaces named hooks plus a per-frame world position while dragging.
 
-- **Source:** `resources/scripts/DragInteraction.ts`
+- **Source:** `references/scripts/DragInteraction.ts`
 - **Hooks:** `onDragStart: Event<void>`, `onDragEnd: Event<void>`, `onDragUpdate: Event<vec3>` (fires every frame while dragging; payload is the object's world position after `InteractableManipulation` has written it)
 - **CONFIG:** `autoCreateCollider`, `colliderSize`, `debugCollider`, `targetingMode`
-- **Editor support:** via SIK `MouseInteractor` (see §2).
+- **Editor support:** via IK `MouseInteractor` (see §2).
 - **Example use — repositionable widget:** attach `DragInteraction` to a UI panel; subscribe `onDragEnd` to persist the new position. For "spring back on release with thrown velocity" use §7 `PinchPullReleaseInteraction.ts` instead.
+- **Translate/rotate-only grab (lock scale):** calling `setCanScale(false)` once is not enough — a two-hand pinch can still grow the object. Re-assert `setCanScale(false)` while held and clamp `localScale` back to the pre-grab value each frame; verify in Preview that scale is unchanged after a two-hand pinch drag.
 
 ## ⚠ Composite recipes are ADDITIVE to the specs-experience-builder pipeline
 
@@ -256,7 +305,7 @@ Per orchestrator Hard Rule 1: copying a composite recipe (§6–§8) adds **one 
 
 Detects fast, directional hand swipes by pinching and moving. Six directions: Left, Right, Up, Down, Forward, Back.
 
-- **Source:** `resources/scripts/SwipeInteraction.ts`
+- **Source:** `references/scripts/SwipeInteraction.ts`
 - **Core mechanism:** on pinch-down, record wrist position in camera-local space. While pinching, track max displacement. On pinch-up, classify by dominant axis using a cone-of-acceptance.
 - **Tunables:**
   - `SWIPE_THRESHOLD_3D` (default `5.0` cm) — minimum travel to register a swipe
@@ -272,9 +321,9 @@ Detects fast, directional hand swipes by pinching and moving. Six directions: Le
 
 ## 7. Recipe: PinchPullReleaseInteraction
 
-SIK-`Interactable`-based. User pinches an object, pulls it on allowed axes up to `maxDistance`, releases it, and spring physics snaps it back — recording release velocity for throw momentum.
+IK-`Interactable`-based. User pinches an object, pulls it on allowed axes up to `maxDistance`, releases it, and spring physics snaps it back — recording release velocity for throw momentum.
 
-- **Source:** `resources/scripts/PinchPullReleaseInteraction.ts`
+- **Source:** `references/scripts/PinchPullReleaseInteraction.ts`
 - **Core mechanism:** attaches to an object with a `ColliderComponent` + `Interactable` (auto-created if missing). `targetingMode = 1` (Direct touch) by default. Tracks `startPoint` delta on Specs, planecastPoint in Editor.
 - **`CONFIG` object** (edit at top of file):
   - `allowX / allowY / allowZ` — axis lock per axis
@@ -282,7 +331,7 @@ SIK-`Interactable`-based. User pinches an object, pulls it on allowed axes up to
   - `springDuration`, `springBounce` — release feel
   - `colliderSize` — auto-generated box if no collider present
   - `debugCollider` — wireframe while prototyping
-- **Example use — mini-golf ball launcher:** `allowX=true, allowY=false, allowZ=true`. Grab the ball, pull back along -Z, release. Use `spring.velocity` at release to apply impulse to a physics-driven ball.
+- **Example use — mini-golf ball launcher:** `allowX=true, allowY=false, allowZ=true`. Grab the ball, pull back along -Z, release. Read `spring.velocityX` / `velocityY` / `velocityZ` at release to apply impulse to a physics-driven ball.
 - **Adaptation ideas:**
   - Drop the spring-return for "stay where released" — remove the `else` branch in `onUpdate` that calls `spring.evaluate`.
   - Allow free 3D pull: set all three axes true, remove distance clamp.
@@ -290,9 +339,9 @@ SIK-`Interactable`-based. User pinches an object, pulls it on allowed axes up to
 
 ## 8. Recipe: GrabPullReleaseInteraction
 
-Same behavior as PinchPullRelease but uses a **full-fist grab** via `GestureModule.getGrabBeginEvent` instead of SIK pinch. Tracks the midpoint of `indexTip` + `thumbTip` to decide if the hand is inside the grab volume, then uses `wrist.position` for stable motion tracking.
+Same behavior as PinchPullRelease but uses a **full-fist grab** via `GestureModule.getGrabBeginEvent` instead of IK pinch. Tracks the midpoint of `indexTip` + `thumbTip` to decide if the hand is inside the grab volume, then uses `wrist.position` for stable motion tracking.
 
-- **Source:** `resources/scripts/GrabPullReleaseInteraction.ts`
+- **Source:** `references/scripts/GrabPullReleaseInteraction.ts`
 - **Same `CONFIG` schema** as PinchPullRelease plus `grabSize` + `grabPadding` for the hand-in-volume check.
 - **Why prefer this over PinchPullRelease:** grabbing feels more natural for chunky objects (levers, handles, bats). Pinch is better for small/precise targets.
 - **Example use — virtual lever:** `allowX=false, allowY=true, allowZ=false`, small `maxDistance`. Override the spring to trigger a state change when pulled past a threshold.
@@ -307,7 +356,7 @@ When none of the recipes above fit, compose a new one from these primitives. Eve
 ### Spring-return
 
 ```typescript
-import { SpringAnimate } from "SpectaclesInteractionKit.lspkg/Utils/springAnimate";
+import { SpringAnimate } from "InteractionKit.lspkg/Utils/springAnimate";
 
 this.spring = SpringAnimate.spring(0.5 /* duration */, 0.3 /* bounce 0-1 */);
 
@@ -321,7 +370,7 @@ const next = this.spring.evaluate(current, target);
 transform.setWorldPosition(next);
 ```
 
-Record `spring.velocity` at release for throw momentum: `spring.velocity = (targetPos - currentPos) / deltaTime`.
+Set `spring.velocity = (targetPos - currentPos) / deltaTime` at release for throw momentum, and read it back through `velocityX` / `velocityY` / `velocityZ` — the `velocity` getter is deprecated.
 
 ### Cone-of-acceptance (direction classification)
 
@@ -346,6 +395,13 @@ const hand = HandInputData.getInstance().getHand("right");
 const grabCenter = hand.indexTip.position.add(hand.thumbTip.position).uniformScale(0.5);
 const wristMotion = hand.wrist.position; // use this for deltas
 ```
+
+### Sustained pinch-hold surface (draw / paint pads)
+
+The mirror of a manipulation grab. For a *non-manipulation* surface you pinch-and-hold on — a draw board, a paint pad, a sustained-trigger zone — two footguns bite:
+
+- **`enableInstantDrag = true` steals the pinch into a drag** and blocks the sustained-trigger behavior. Set it **false** on that Interactable so the hold registers as a trigger. (A manipulation grab is the opposite case — it needs `enableInstantDrag = true` or it plays audio but never moves.)
+- **Bind BOTH callback families.** Desktop Preview / Indirect often emits *drag* events while on-device emits *trigger* events, so wire the action to `onTriggerStart/Update/End` **and** `onDragStart/Update/End`. A trigger-only bind leaves the board blank for a human in Preview even though a forced-trigger test (LEAF) passes. Set `targetingMode` to at least Direct|Indirect so Preview's mouse / Indirect ray can reach it.
 
 ### Editor-mocking pattern
 
@@ -379,7 +435,7 @@ A `duration > 0.75s` check is the simplest way to separate **swipe** (fast, ball
 
 A recipe is **one extra script file** living next to the main game script and the `/specs-build-ui`-generated `<Name>UI.ts` module — owns its own `UpdateEvent`, collider setup, and gesture bindings.
 
-1. **Place the file** under `Assets/Scripts/` (copy from `resources/scripts/`).
+1. **Place the file** under `Assets/Scripts/` (copy from `references/scripts/`).
 2. **Attach** via `ScriptComponent` in Editor, or via `getComponent` / `createComponent` in `onAwake`.
 3. **Subscribe to the public hooks** documented in each recipe section (§4–§8). Wire callbacks to game state, `requireAsset` meshes/SFX, or the UI module — never inline `Component.Text`.
 

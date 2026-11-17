@@ -12,25 +12,72 @@ SPDX-License-Identifier: Apache-2.0
 # Snap Cloud — Backend for Specs
 
 **Status:** Alpha — [Apply for access](https://snap-ar.com/SnapCloudApplication)
-**Requirements:** Lens Studio v5.7+. Install the **SnapCloud / SupabaseClient** package (runtime) from Asset Library. **v5.15.21+:** the Supabase Plugin is bundled automatically — no separate plugin install. On older versions, verify the plugin via **Window → Supabase**. For local development and edge-function deployment, install the Supabase CLI (`brew install supabase/tap/supabase`).
+**Requirements:** Lens Studio v5.7+ (the 4.0.0 SnapCloud packages target Lens Studio 5.25+). Install the **SnapCloud / SupabaseClient** package (runtime) from Asset Library. **v5.15.21+:** the Supabase Plugin is bundled automatically — no separate plugin install. On older versions, verify the plugin via **Window → Supabase**. For local development and edge-function deployment, install the Supabase CLI (`brew install supabase/tap/supabase`).
 
-**Full reference docs:** `resources/docs/` — getting-started, databases, realtime, storage, edge-functions, CLI, usage_limits, examples/, **supabase-cli-reference** (complete command index)
-**Complete example scripts:** `resources/scripts/` — 19 scripts covering all patterns (including `setup-credentials.sh` for agent auth)
+**Full reference docs:** `references/docs/` — getting-started, databases, realtime, storage, edge-functions, CLI, usage_limits, examples/, **supabase-cli-reference** (complete command index)
+**Complete example scripts:** `references/scripts/` — 19 scripts covering all patterns (including `setup-credentials.sh` for agent auth)
 
 ---
 
-## MCP Server Integration (optional)
+## Backend operations: MCP first, CLI fallback
 
-Snap Cloud provides an MCP server that lets AI assistants interact with and query your Supabase projects on your behalf. Set it up by following the [Snap Cloud MCP guide](https://cloud.snap.com/docs/guides/ai-tools/mcp).
+Snap Cloud ships a **Supabase MCP server** (server name `supabase`; refer to its tools by bare name and resolve the prefix per runtime — see `lens-studio-field-notes` Hard Rule 2 / Cross-runtime orchestration). Setup: [Snap Cloud MCP guide](https://cloud.snap.com/docs/guides/ai-tools/mcp).
 
-**Detection:** check whether your runtime exposes the Supabase MCP server's `list_tables` tool — resolve it by its bare name. If present, MCP is connected. If not, fall back to the CLI steps in each section. Tool naming, deferred schemas, and ask/spawn semantics: see `lens-studio-field-notes` Hard Rule 2 / Cross-runtime orchestration.
+**When the MCP server is connected, prefer it over the Supabase CLI for every operation that has an MCP tool.** MCP needs no `brew install`, no `supabase login`, and no project link — it authenticates through the client's own browser OAuth. The CLI remains the fallback, and the **only** path for operations MCP does not cover (storage uploads, the local dev stack, `.supabaseProject` asset generation, TS type files written to disk for a full workflow).
 
-**Rules:**
-- Use MCP tools for **read-only operations only**. Writes (migrations, deployments, SQL mutations) always require explicit user confirmation first. Before proceeding, warn the user: **"This will modify your Supabase project directly. If this is a production project, changes cannot be easily undone and may affect live users. Please confirm this is a development/test project before continuing."** Only proceed if the user explicitly acknowledges this.
-- The Supabase MCP server's `execute_sql` tool is **NOT** inherently read-only — it will execute any SQL. Use it for SELECT queries only; never pass mutations without explicit user confirmation.
-- **After any schema change** (via `db push`, Dashboard SQL Editor, or any other method): verify the migration landed and the expected tables are present. Report results to the user.
-- **After any edge function change** (via `functions deploy`, Dashboard, or any other method): verify the function appears and its status is active. Report results to the user.
-- **If logs show CRUD or edge function errors:** check whether the user is signed in first (most common cause of `401`/`403` and silent write failures), then use MCP to inspect the affected table's schema/RLS or the function's current state.
+### Detect what's available — do this before choosing a path
+
+The server is added **read-only by default** (`?read_only=true`), and read-only mode **strips every mutating tool from the tool list** — write tools are *absent*, not merely disabled. A user (or a future editor default) may remove `read_only`, which makes the write tools reappear. So the tool set differs between deployments — **never assume a tool exists; probe for it:**
+
+1. **Is MCP connected?** Resolve the bare tool `list_tables`. Present → MCP is available. Absent → use the CLI for everything below.
+2. **Is MCP writable?** Resolve a write tool such as `apply_migration` (or `deploy_edge_function`). Present → the server is read-write; MCP may perform writes. Absent → read-only (the default); route **all** writes to the CLI.
+
+**Read-only tool set** (always present when MCP is connected):
+`list_tables`, `list_extensions`, `list_migrations`, `execute_sql` (runs as a read-only pg user — **SELECT only**), `list_edge_functions`, `get_edge_function`, `list_projects`, `get_project`, `get_project_url`, `get_publishable_keys`, `generate_typescript_types`, `query_logs`, `get_advisors`, `list_storage_buckets`, `search_docs`.
+
+**Write tool set** (appears **only when `read_only` is removed**):
+`apply_migration`, `deploy_edge_function`, `create_project`, `pause_project` / `restore_project`, `update_storage_config`, and a now-mutating `execute_sql`.
+
+### Endpoint scope — general (default) vs project-scoped
+
+The MCP endpoint is **general (org-wide) by default** — a bare URL like `https://cloudapi.snap.com/mcp` with no project ref baked in. A user *may* pin it to one project, but that's the exception. The modes behave differently, so **detect, don't assume** — and never conclude a general endpoint is "pointed at the wrong project"; it isn't pointed at any single one.
+
+- **General (default):** per-project tools (`get_project`, `execute_sql`, `list_tables`, `list_migrations`, `list_edge_functions`, `generate_typescript_types`, …) **take a `project_id` argument** and accept **any ref the account can access** — you are *not* limited to `list_projects`. Detect: resolve one of these tools and check whether it accepts a project ref.
+- **Project-scoped:** the same tools **omit** the project arg (project is implicit in the URL). Only that one project is reachable; another requires the user to change their config.
+
+**`list_projects` is not the authoritative set.** It can lag or omit projects the account can still query directly. On a general endpoint, a project missing from `list_projects` is usually still reachable — pass its ref to `get_project` / `execute_sql` and confirm, rather than telling the user it "can't be seen" or asking them to re-point the MCP.
+
+### Routing table
+
+| Operation | MCP tool (prefer if available) | CLI fallback |
+|---|---|---|
+| Inspect tables / schema / extensions | `list_tables`, `list_extensions` | `supabase db pull --linked` |
+| Migration history | `list_migrations` | `supabase migration list --linked` |
+| Read data (SELECT) | `execute_sql` *(SELECT only)* | `supabase db query "…" --linked` |
+| Generate TS types | `generate_typescript_types` | `supabase gen types typescript …` |
+| Project URL / anon key | `get_project_url`, `get_publishable_keys` | `supabase projects api-keys …` |
+| List / get projects | `list_projects`, `get_project` | `supabase projects list` |
+| Inspect edge functions | `list_edge_functions`, `get_edge_function` | `supabase functions list` / `download` |
+| Logs & advisories | `query_logs`, `get_advisors` | `supabase functions logs …` / dashboard |
+| List storage buckets | `list_storage_buckets` | `supabase storage ls … --experimental` |
+| **Apply migration / DDL** | `apply_migration` *(write mode only)* | `supabase db push --project-ref …` |
+| **Deploy edge function** | `deploy_edge_function` *(write mode only)* | `supabase functions deploy …` |
+| Storage **upload** / seed files | *(no MCP tool — use CLI)* | `supabase storage cp … --experimental` |
+| Local dev stack | *(no MCP tool — use CLI)* | `supabase start` / `serve` / `db reset` |
+| `.supabaseProject` asset | *(no MCP tool — use CLI)* | see [Agent-Driven Setup](#agent-driven-setup-zero-editor-friction) |
+
+### Write safety (applies to MCP writes **and** CLI pushes to remote)
+
+- `execute_sql` is **NOT** inherently read-only in write mode — it runs whatever SQL you pass. Use it for SELECT only unless you have deliberately chosen it as your write path.
+Not all writes carry the same risk — gate them in two tiers:
+
+- **Tier 1 — additive / reversible writes: one session gate, then flow freely.** These create or add without destroying existing data: `CREATE TABLE` / `CREATE INDEX` / add a column, add an RLS policy, enable realtime, create a storage bucket, `deploy_edge_function`, `INSERT` / `UPSERT` rows. The **first** such write to a remote project in a session names the target and gets the dev-vs-prod acknowledgement: **"I'm about to modify project `<name> (<ref>)` directly. Changes to a production project can't be easily undone and may affect live users. Confirm this is a development/test project — or that you accept the risk — before I continue."** Once acknowledged, further Tier-1 writes **to the same project** in this session proceed without re-asking. Re-confirm if the target project changes. (This is the semantic prod-safety gate; it's separate from any per-call approval your runtime shows for an un-allowlisted MCP tool.)
+- **Tier 2 — destructive / irreversible operations: confirm individually, every time**, even after the session gate. These lose data or can't be cleanly undone: `DROP` / `TRUNCATE` a table, drop a column, bulk `DELETE` / `UPDATE` without a narrow `WHERE`, `db reset`, deleting storage objects, deleting a bucket, deleting/resetting/rebasing a branch, `pause_project` / `restore_project`. State exactly what will be lost before proceeding.
+- **The tier is decided by the operation itself, not the tool that carries it.** A `DROP TABLE` is Tier 2 whether it arrives via `apply_migration`, `execute_sql`, or a CLI `db push` of a migration file — inspect the SQL/action, not just the tool name, and escalate to a Tier-2 prompt whenever the effect is destructive.
+- **For changes you want tracked in the project's version control, prefer the CLI migration path** (`supabase/migrations/*.sql` + `db push`). `apply_migration` records the migration on the remote but does not write a local migration file. For a quick one-off change on a dev project with writes enabled, `apply_migration` is fine.
+- **After any schema change** (MCP or CLI): verify with `list_tables` / `list_migrations` (or `supabase migration list`) that it landed. Report to the user.
+- **After any edge-function change** (MCP or CLI): verify with `list_edge_functions` (or `supabase functions list`) that the function is present and active. Report to the user.
+- **If logs show CRUD or edge-function errors:** check whether the user is signed in first (most common cause of `401`/`403` and silent write failures), then use `list_tables` / `execute_sql` to inspect the affected table's schema & RLS, or `get_edge_function` for the function's current state.
 
 ---
 
@@ -106,16 +153,16 @@ export class MyComponent extends BaseScriptComponent {
 }
 ```
 
-> **Auth retry:** If `signInWithIdToken` returns `AuthRetryableFetchError`, the OIDC token isn't ready at startup — wait ~1 s and retry up to 3×. See `resources/scripts/ImageCaptureUploader.ts` for the `signInWithRetry` helper.
+> **Auth retry:** If `signInWithIdToken` returns `AuthRetryableFetchError`, the OIDC token isn't ready at startup — wait ~1 s and retry up to 3×. See `references/scripts/ImageCaptureUploader.ts` for the `signInWithRetry` helper.
 
 > **Preview limitation:** `signInWithIdToken` always fails in Lens Studio preview — see the anonymous-fallback comments in `signIn()` above (enable Anonymous via Dashboard only; `config push` is blocked on Snap Cloud's org type).
 
 ### Shared config (`SnapCloudRequirements`)
 
-For scenes with multiple Snap Cloud scripts, use one `SnapCloudRequirements` component as a shared config. It exposes `isConfigured()`, `getSupabaseProject()`, `getRestApiUrl()`, `getStorageApiUrl()`, `getFunctionsApiUrl()`, and `getSupabaseHeaders()`. See `resources/scripts/SnapCloudRequirements.ts`.
+For scenes with multiple Snap Cloud scripts, use one `SnapCloudRequirements` component as a shared config (shipped at the root of both `SupabaseClient.lspkg` and `SnapCloudExamples.lspkg`). It exposes `isConfigured()`, `getSupabaseProject()`, `getRestApiUrl()`, `getStorageApiUrl()`, `getFunctionsApiUrl()`, and `getSupabaseHeaders()`. See `references/scripts/SnapCloudRequirements.ts`.
 
 ```typescript
-import { SnapCloudRequirements } from './SnapCloudExamples.lspkg/SnapCloudRequirements'
+import { SnapCloudRequirements } from 'SupabaseClient.lspkg/SnapCloudRequirements'
 
 // No @input — find the SnapCloudRequirements component on the same SceneObject:
 private snapCloudRequirements: SnapCloudRequirements =
@@ -132,6 +179,8 @@ this.client = createClient(project.url, project.publicToken, { realtime: { heart
 ## Agent-Driven Setup (Zero Editor Friction)
 
 **Use this path when an AI agent is building the Lens.** It skips the Lens Studio editor plugin entirely. The only human step is a one-time browser login — every other action runs from the terminal.
+
+> **Check MCP first.** Before running a CLI command below, consult the [routing table](#routing-table): if the Supabase MCP server is connected, the read steps here (list projects, fetch keys/URL, inspect schema, list functions, generate types) have zero-setup MCP equivalents — use them and skip the corresponding CLI. The CLI is still required for steps MCP cannot do: generating the `.supabaseProject` asset, storage uploads, the local dev stack, and (in the default read-only mode) all writes.
 
 The `.supabaseProject` asset is plain YAML. The agent generates it from CLI output — no drag-and-drop, no editor UI.
 
@@ -214,7 +263,7 @@ EOF
 
 Reference this file in any Snap Cloud script using `requireAsset('../SupabaseProject_${PROJECT_REF}.supabaseProject') as SupabaseProject` — no inspector wiring, no human interaction needed.
 
-> **Scene wiring via MCP:** see `resources/docs/scene-graphql-wiring.md` for the argument names, `setProperty` vs `setComponentProperty`, and `primaryAsset` vs `scriptAsset` caveats.
+> **Scene wiring via MCP:** see `references/docs/scene-graphql-wiring.md` for the argument names, `setProperty` vs `setComponentProperty`, and `primaryAsset` vs `scriptAsset` caveats.
 
 ### Step 5 — Create database tables via CLI migrations
 
@@ -358,7 +407,7 @@ type XYZInsert = Database['public']['Tables']['xyz_data']['Insert']
 
 ### Quick CLI reference
 
-For full command flags and options, see `resources/docs/supabase-cli-reference.md`. Most-used commands:
+For full command flags and options, see `references/docs/supabase-cli-reference.md`. Most-used commands:
 
 | Task | Command |
 |------|---------|
@@ -375,7 +424,7 @@ For full command flags and options, see `resources/docs/supabase-cli-reference.m
 
 ### Full credentials automation
 
-See `resources/scripts/setup-credentials.sh` — runs steps 1-4 and drops a ready-to-use `.supabaseProject` into `Assets/`. Pass `--project-ref` to skip the interactive project picker.
+See `references/scripts/setup-credentials.sh` — runs steps 1-4 and drops a ready-to-use `.supabaseProject` into `Assets/`. Pass `--project-ref` to skip the interactive project picker.
 
 ---
 
@@ -542,7 +591,7 @@ await this.client.from('user_preferences').upsert(
 const { data, error } = await this.client.rpc('my_function', { p_param: value })
 ```
 
-> **RLS:** Tables have Row Level Security enabled by default. Add policies in the Snap Cloud Dashboard → Table Editor → RLS so users can only read/write their own rows. See `resources/docs/databases.mdx` and `resources/scripts/TableConnector.ts`.
+> **RLS:** Tables have Row Level Security enabled by default. Add policies in the Snap Cloud Dashboard → Table Editor → RLS so users can only read/write their own rows. See `references/docs/databases.mdx` and `references/scripts/TableConnector.ts`.
 
 ---
 
@@ -590,7 +639,7 @@ this.client.removeAllChannels()
 ```
 
 > **Limits:** 200 peak concurrent connections, 250 KB max message size, 2M messages/month.
-> See `resources/docs/realtime.mdx` and `resources/scripts/RealtimeCursor.ts` for the bidirectional cursor sync example.
+> See `references/docs/realtime.mdx` and `references/scripts/RealtimeCursor.ts` for the bidirectional cursor sync example.
 
 ---
 
@@ -656,7 +705,7 @@ await this.client.storage.from('my-bucket').remove(['images/old-photo.jpg'])
 > **Folder convention:** organize as `images/`, `models/`, `audio/`. Prefix with user ID (e.g. `captures/<uid>_<timestamp>.jpg`) to scope per-user and match RLS policies.
 > **Limits:** 1 GB total storage, 50 MB max file size.
 > **Bucket setup:** Dashboard → Storage → New Bucket → toggle Public → add SELECT policy for authenticated users.
-> See `resources/docs/storage.mdx` and `resources/scripts/StorageLoader.ts`.
+> See `references/docs/storage.mdx` and `references/scripts/StorageLoader.ts`.
 
 ---
 
@@ -664,7 +713,7 @@ await this.client.storage.from('my-bucket').remove(['images/old-photo.jpg'])
 
 Serverless TypeScript/Deno functions deployed at the edge. Deploy via CLI (`supabase --profile snap functions deploy`) or Dashboard → Edge Functions → Via Editor.
 
-For the Deno function body (`Deno.serve` boilerplate, injected `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY`), see Step 7 above and `resources/docs/edge-functions.mdx`. The Lens-side call:
+For the Deno function body (`Deno.serve` boilerplate, injected `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY`), see Step 7 above and `references/docs/edge-functions.mdx`. The Lens-side call:
 
 **Calling from Specs:**
 ```typescript
@@ -693,7 +742,7 @@ const result = await response.json()
 
 > **Deno:** use `jsr:@supabase/supabase-js@2` (not npm). Use `SUPABASE_SERVICE_ROLE_KEY` server-side, never in Lens code. Pass Storage URLs not bytes to avoid request size limits.
 > Camera/microphone are NOT available inside edge functions.
-> See `resources/docs/edge-functions.mdx` and `resources/scripts/EdgeFunctionImgProcessing.ts`.
+> See `references/docs/edge-functions.mdx` and `references/scripts/EdgeFunctionImgProcessing.ts`.
 
 ---
 
@@ -706,22 +755,19 @@ Capture camera stills, video frames, and microphone audio from Specs and upload 
 ```typescript
 const cameraModule: CameraModule = require('LensStudio:CameraModule')
 
-async captureAndUpload(): Promise<void> {
-  const imageRequest = CameraModule.createImageRequest()
-  ;(imageRequest as any).cameraId = CameraModule.CameraId.Default_Color
-  const imageFrame = await cameraModule.requestImage(imageRequest)
+async captureAndUpload(session: CameraModule.CaptureSession): Promise<void> {
+  // A started still-capture session (see /specs-camera "Still images"; device only).
+  const frame = await session.capture()
 
-  Base64.encodeJpeg(imageFrame.texture, 0.85, async (b64) => {
-    const bin = Base64.decode(b64)
-    const bytes = new Uint8Array(bin.length)
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+    Base64.encodeTextureAsync(frame.texture, async (b64) => {
+    const bytes = Base64.decode(b64)            // Uint8Array
 
     const { data, error } = await this.client.storage.from('my-bucket')
       .upload(`captures/${this.uid}_${Date.now()}.jpg`, bytes, {
         contentType: 'image/jpeg', upsert: true
       })
     if (!error) print('Uploaded: ' + data.path)
-  })
+  }, () => print('JPEG encode failed'), CompressionQuality.HighQuality, EncodingType.Jpg)
 }
 ```
 
@@ -729,11 +775,11 @@ async captureAndUpload(): Promise<void> {
 
 ### Video Capture (record-then-upload)
 
-Store JPEG frames as `Uint8Array` in memory during recording using `CameraTextureProvider.onNewFrame`, then batch-upload after recording stops. This avoids I/O contention and frame drops during recording. See `resources/scripts/VideoCaptureUploader.ts`.
+Store JPEG frames as `Uint8Array` in memory during recording using `CameraTextureProvider.onNewFrame`, then batch-upload after recording stops. This avoids I/O contention and frame drops during recording. See `references/scripts/VideoCaptureUploader.ts`.
 
 ### Audio Capture
 
-Access the microphone via `MicrophoneAudioProvider`, collect PCM `Float32Array` frames on `UpdateEvent`, convert to WAV (16-bit PCM with RIFF header) after recording stops, then upload. Use 16 kHz for voice. See `resources/scripts/AudioCaptureUploader.ts` for the WAV encoding helper.
+Access the microphone via `MicrophoneAudioProvider`, collect PCM `Float32Array` frames on `UpdateEvent`, convert to WAV (16-bit PCM with RIFF header) after recording stops, then upload. Use 16 kHz for voice. See `references/scripts/AudioCaptureUploader.ts` for the WAV encoding helper.
 
 ### Live Video/Audio Streaming via Realtime
 
@@ -750,7 +796,7 @@ Base64.encodeTextureAsync(texture, (base64) => {
 }, (err) => print(err), CompressionQuality.LowQuality, EncodingType.Jpg)
 ```
 
-> See `resources/scripts/VideoStreamingController.ts`, `AudioStreamingController.ts`, and `CompositeStreamingController.ts` for full implementations including web viewer HTML. Also see `resources/docs/examples/media.mdx`.
+> See `references/scripts/VideoStreamingController.ts`, `AudioStreamingController.ts`, and `CompositeStreamingController.ts` for full implementations including web viewer HTML. Also see `references/docs/examples/media.mdx`.
 
 ---
 
@@ -810,7 +856,7 @@ const { data: rows } = await this.client.rpc('get_top_scores', { p_limit: 10, p_
 ```
 
 > `SECURITY DEFINER` lets the function use `auth.uid()` safely without exposing raw UPDATE to users. Pass `'asc'` for time-trial games (lower = better).
-> See `resources/scripts/SupabaseLeaderboardService.ts` and `GlobalLeaderboard.ts` for lazy auth + UI integration. Also `resources/docs/examples/leaderboard.mdx`.
+> See `references/scripts/SupabaseLeaderboardService.ts` and `GlobalLeaderboard.ts` for lazy auth + UI integration. Also `references/docs/examples/leaderboard.mdx`.
 
 ---
 
@@ -829,7 +875,7 @@ const { data: rows } = await this.client.rpc('get_top_scores', { p_limit: 10, p_
 | Realtime max message size | **250 KB** |
 | Realtime messages/month | 2 million |
 
-To increase limits, send a support request from the Snap Cloud Dashboard. See `resources/docs/usage_limits.mdx`.
+To increase limits, send a support request from the Snap Cloud Dashboard. See `references/docs/usage_limits.mdx`.
 
 ---
 
@@ -868,7 +914,7 @@ To increase limits, send a support request from the Snap Cloud Dashboard. See `r
 | `CompositeStreamingController.ts` | Synchronized video + audio streaming with shared sessionId |
 | `SupabaseLeaderboardService.ts` | Lazy auth + RPC calls (submit_score, get_top_scores) |
 | `GlobalLeaderboard.ts` | Leaderboard controller with ascending/descending sort |
-| `LeaderboardRowInstantiator.ts` | Spawns prefab rows for SIK ScrollWindow |
+| `LeaderboardRowInstantiator.ts` | Spawns prefab rows for UIKit ScrollWindow |
 | `SnapCloudRequirements.ts` | Centralized credentials + API URL helpers |
 
 ---

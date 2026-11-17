@@ -31,10 +31,52 @@ This skill and its `references/` files are the primary source for the Lens runti
 
 ---
 
+## Correctness must-haves for the main game script
+
+When writing the main `@component` + helper modules, these matter more than
+anything else below. Get all six right.
+
+1. **Write the MAIN `@component` script FIRST, helpers second — with the Write
+   tool.** The main orchestrator is the dominant deliverable; helper modules
+   alone do not complete the task. Create each file on disk with the Write tool
+   (text in your reply creates nothing) and verify it exists before finishing.
+2. **Use ONLY APIs that appear in this reference or in existing project code.**
+   Never invent methods or classes — there is no `Material.create()`, no
+   `sceneObject.createSceneObject(...)`, no `getComponent("Interactable")`
+   string lookup with invented events. If you did not see the API in this guide
+   or in a script already in the project, do it the way this guide shows instead.
+3. **Import and type the UI class, drive it only through its public API.**
+   `import { <Name>UI } from "./<Name>UI"` and `@input uiHud!: <Name>UI`; call
+   its public methods (`setScore(...)`) and subscribe to its `Event`s
+   (`this.uiHud.onX.add(...)`). Never rebuild or edit UI inside the main script —
+   no `Component.Text`, no `UIKit` imports here.
+4. **Assets: `requireAsset` for anything the script loads itself; `@input
+   @allowUndefined <name>Audio!: AudioComponent` for audio.** Loop the
+   background music in your start handler: `if (this.bgMusicAudio)
+   this.bgMusicAudio.play(-1)`. Play SFX with `audio.play(1)`.
+5. **Lifecycle via events, all bound in `onAwake`:**
+   `this.createEvent("OnStartEvent").bind(() => this.onStart())`,
+   `this.createEvent("UpdateEvent").bind(() => this.onUpdate())`, and timers via
+   `this.createEvent("DelayedCallbackEvent")` + `.reset(seconds)`.
+6. **Wire every event/callback you declare, and populate every collection you
+   iterate.** A declared-but-unwired handler or an array that is read but never
+   filled is a defect, not a placeholder.
+
+## Cookbook — read it first
+
+Before writing the main script, **read `references/main-script-cookbook.md`**:
+it has the TypeScript discipline rules, the verified API card (and the list of
+APIs that do NOT exist), copy-paste recipes for the standard game mechanics
+(per-frame motion, prefab spawning, pinch/tap via IK, proximity scoring,
+timers, audio), and one complete worked example. **Compose your game from
+those recipes — never invent an API.**
+
+---
+
 ## Component Anatomy
 
 ```typescript
-import { SomeModule } from 'SpectaclesInteractionKit.lspkg/SomeModule'
+import { IK } from 'InteractionKit.lspkg/IK' // IK = InteractionKit (not inverse kinematics)
 
 @component
 export class MyComponent extends BaseScriptComponent {
@@ -110,6 +152,21 @@ export class MyComponent extends BaseScriptComponent {
 | `@hint('text')` | Adds a tooltip to the inspector field |
 | `@allowUndefined` | Prevents validation errors for optional inputs |
 | `@label('Display Name')` | Renames the field label shown in the inspector |
+
+**Decorator arguments must be single string literals.** `@hint(...)` /
+`@label(...)` take exactly one literal string — no concatenation, no template
+literals. The TypeScript compiler accepts them, but Lens Studio's component
+compiler rejects them at import time.
+
+**A required `@input`'s runtime value is the serialized scene value, not your TS
+field initializer.** `@input width: number = 40` sets the Inspector default at
+author time only; once the component is on a SceneObject, an input never set in
+the Inspector reads `0` / `""` / `null` at runtime — not your `= 40`. This fails
+silently: a panel sized from an unset input builds `width × height = 0 × 0` and
+renders nothing, with a clean type-check and no error. Set the value at the point
+the component is configured — type it into the input in the Inspector (which
+serializes it into the scene), or assign it in the code that creates the
+component — not via the class-field default.
 
 ### Input arrays
 
@@ -335,6 +392,10 @@ export class ScoreManager extends BaseScriptComponent {
 ## Common Gotchas
 
 - **`getComponent` in `onAwake`**: calling `getComponent` on the *same* SceneObject works in `onAwake`, but accessing *other* objects or `@input` references that may not be initialized yet is unsafe. Use `OnStartEvent` for cross-object lookups.
+- **Look up a peer TS script by its class type, not the base `ScriptComponent`.** A base-type query — `getComponent("Component.ScriptComponent")` (or `getComponents`) — returns the same underlying object, but typed as the bare `ScriptComponent` (which exposes only `createEvent`/`removeEvent`), so you lose the class type and must `as any` to reach custom members; and it returns the *first* matching component, so with several scripts attached you can silently grab the wrong one. Narrow to the class with `obj.getComponent(MyScript.getTypeName()) as MyScript`, or prefer a scene-wired `@input` typed as the class. Read the peer's custom fields/`Event`s in `OnStartEvent`: a field or `Event` it assigns in its own `onAwake` is `undefined` until that peer initializes (methods live on the prototype, so they are always present).
+- **Keep the controller↔peer-script interface in sync.** When a controller subscribes to a peer script's events or calls its methods (`panel.onValueChanged.add(...)`, `panel.setState(...)`), those members must be **declared public on that peer class**. If you rename or remove a member on one side (e.g. during a cleanup pass) and don't update the caller, it's a `TS2339 Property 'X' does not exist on type 'Y'` — the strict type-check will fail on it. Fix both files together, and re-run the type-check after the edit (do not assume a prior green check still holds).
+- **Never hide a panel by disabling the script's OWN SceneObject** (`this.getSceneObject().enabled = false`): a disabled object stops firing `OnStartEvent`/updates, so its own build never runs (or never re-runs). Toggle a **child** container object instead.
+- **Never call `requireAsset` at module top level**: a miss throws at import and takes the whole component down (surfacing as an unrelated "not found"). Call it inside a lifecycle method and tolerate a missing asset.
 - **`@input` arrays** need a matching type annotation and are assigned from the Inspector list.
 - **`null` vs `undefined`**: Lens Studio uses `null` more than `undefined`; check with `isNull(val)` or `val !== null`.
 - **`getDeltaTime()`** returns frame delta in seconds — always use it for frame-rate-independent motion.
@@ -344,6 +405,11 @@ export class ScoreManager extends BaseScriptComponent {
 - **`onDestroy` fires on the scene object being destroyed**, not when only a component is removed; if you need component-level cleanup, use `OnDisableEvent` or a manual teardown method.
 - **Script initialization order**: components on the same frame initialize roughly in scene-hierarchy order. If two components in the same frame need each other in `onAwake`, use `OnStartEvent` instead.
 - **`global.scene.createSceneObject(name)`** is on `ScriptScene` (accessed via `global.scene`), not on `SceneObject`. This is the only way to create scene objects at runtime.
+- **Don't shadow `BaseScriptComponent` members**: your `@component` class already inherits `name`, `enabled`, and `sceneObject`. Redeclaring one of those names with an incompatible type breaks the `@component` decorator with confusing errors (TS1238 + TS2416) — pick another name (`userName`, `isActive`, …).
+- **`createEvent` registers a persistent event — create each one once, never in a per-frame/per-tick path.** Repeated calls accumulate and never auto-clean, so creating an event inside `update` (or any per-tick code) leaks. Create your events once in `onAwake` and reuse them.
+- **Don't assume a capability is missing.** Real-world date/time (`Date`) and cross-session persistence both exist — don't fabricate timestamps.
+- **Don't guess a member name on any class — grep `Support/StudioLib.d.ts` for the real one.** Guessed names pass a plain transpile but fail a real type-check. Common example: `SceneObject` has **no** `removeComponent` (destroy a component via the component's own `destroy()`, not the object). When unsure of any member — on `Text`, `SceneObject`, or anything else — look it up rather than trust a plausible-sounding name.
+- **`Component.Text.size` is a font-scale number in the tens, NOT centimeters; small values render microscopic.** Readable world-space label text needs `text.size` roughly 36-72 (caption ~32, body ~48, title ~64-72) on a ~30-40 cm panel. Setting `text.size = 5..12` because it looks "panel-sized in cm" is a recurring bug: the text renders far too small to read even though it compiles and is present in the scene. This is the same scale family as UIKit's `ElementContent.textSize` (its readable bands are in `/specs-build-ui` → `references/uikit-4.0.md`); do not confuse either with a cm dimension. The text's rectangular bounds come from its `ScreenTransform`'s rect when one is attached, otherwise `Text.layoutRect`: look those members up in `Support/StudioLib.d.ts`.
 
 ---
 
@@ -357,13 +423,14 @@ export class ScoreManager extends BaseScriptComponent {
 | Math, coordinates, camera projection, rotations | `references/math.md` |
 | Face tracking, expressions, landmarks | `references/face-tracking.md` |
 | VFX, particle systems | `references/vfx.md` |
+| Animation: tweens built in code (native `AnimationCurve` → `AnimationPlayer`, no library), skeletal playback of imported clips, the `frames:0` T-pose trap | `references/animation-playback.md` |
 | Physics raycasting, surface alignment (Specs) | `references/world-query.md` |
 | Bitmoji, Dynamic Response | `references/user-context.md` |
 | Performance optimization, profiling | `references/performance.md` |
 | Debugging — compile/runtime errors, `@input` not assigned, missing component, event timing | `references/debugging.md` |
 | Cross-script access, TS-to-JS, require() | `references/component-access-patterns.md` |
 | Geometry helpers, line drawing, dot product | `references/runtime-geometry-patterns.md` |
-| Specs build-flow runtime patterns — `requireAsset` semantics, GLB 100× scale formula, SIK `.lspkg` imports + `getTypeName()`, root −Z / child +Z depth idiom, `isNull()`, audio playback modes, `faceDirection` yaw | `references/specs-runtime-patterns.md` |
+| Specs build-flow runtime patterns — `requireAsset` semantics, GLB 100× scale formula, IK `.lspkg` imports + `getTypeName()`, root −Z / child +Z depth idiom, `isNull()`, audio playback modes, `faceDirection` yaw | `references/specs-runtime-patterns.md` |
 | Quick API lookup (method signatures) | `references/api-cheatsheet.md` |
 | Naming, file organization, Inspector layout (`@ui.label`/`@ui.group_start`), import order, DO-NOTs | `references/conventions.md` |
 | Reading and interpreting Lens Studio log output you wrote with `console.*` / `print()` | sibling skill `ls-clad:lens-log-analysis` |

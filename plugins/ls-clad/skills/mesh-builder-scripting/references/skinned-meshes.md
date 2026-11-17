@@ -5,6 +5,8 @@ SPDX-License-Identifier: Apache-2.0
 
 # Skinned Meshes
 
+> This covers building/skinning geometry from code. To **play an imported skeletal animation clip** on a rig (`AnimationAsset` → `AnimationPlayer`/`AnimationClip`, plus the `frames:0` frozen-T-pose trap), see [`lens-api/references/animation-playback.md`](../../lens-api/references/animation-playback.md).
+
 `boneData` encodes up to 4 bone influences per vertex as a `components: 4` attribute. Each component's integer part is the bone index and the fractional part is the weight (e.g. `1.99` → bone 1, weight 0.99). Weights are **not** normalized.
 
 ## From scratch with boneData vertex attribute

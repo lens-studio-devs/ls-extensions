@@ -57,17 +57,21 @@ migration itself is mostly plumbing, but two pieces are non-obvious:
 
 For each remote asset to migrate:
 
-1. **Identify** — list `.remoteReferenceAsset` files; for each, read its `metadata` (URL,
-   checksum, size, type) and find the consumer code that calls `downloadAsset` on it.
-2. **Download** — fetch the bundle bytes at `metadata.resource.url` and write them to a local
-   file. Verify size + SHA-256 against the metadata.
+1. **Identify** — list `.remoteReferenceAsset` files; the path-backed action returns each stable
+   remote asset ID plus metadata checksum, size, and type. Find the consumer code that calls
+   `downloadAsset` on it.
+2. **Download** — pass that stable asset ID and a strictly validated `.prfb` basename to the
+   path-backed action. It creates a fresh private EEC temporary directory, retains it under an
+   opaque download handle for this Lens Studio session, and returns the generated receipt path;
+   verify the returned size + SHA-256 against that receipt.
 3. **Upload** to a public Supabase storage bucket via `curl` + service-role key, named
    `<asset>.prfb`.
 4. **Replace consumers** — swap `downloadAsset` callers for `InternetModule.makeResourceFromUrl
    + RemoteMediaModule.loadResourceAsRuntimeBundle`. The bundled `assets/RemoteSupabaseLoader.ts`
    is a ready-to-drop loader; use its `bundle` kind.
-5. **Clean up** — delete the downloaded temp file. Keep the `.remoteReferenceAsset` stub so the
-   manifest still resolves; the user removes it once they're confident.
+5. **Clean up** — after verification/upload, release the retained download by its opaque handle.
+   Keep the `.remoteReferenceAsset` stub so the manifest still resolves; the user removes it once
+   they're confident.
 6. **Verify** — recompile, refresh preview, grep the log for `loaded` / `failed` lines.
 
 ## Stage 1: Identify the remote assets
@@ -77,96 +81,39 @@ For each remote asset to migrate:
 query { allAssets(typeFilter: "RemoteReferenceAsset") { id name path type } }
 ```
 
-Then read each one's metadata in-editor. `instanceof Editor.Assets.RemoteReferenceAsset` throws `invalid 'instanceof' right operand` at runtime, so duck-type on the asset's own fields instead and read the `metadata` property:
+Run the path-backed action that reads remote metadata in-editor. `instanceof Editor.Assets.RemoteReferenceAsset` throws `invalid 'instanceof' right operand` at runtime, so the action duck-types the asset's own fields. Its output provides a stable `remoteAssetId`, nullable metadata identity/type/size/checksum, and `hasDownload`, but never a raw CDN URL:
 
-```ts
-// in ExecuteEditorCode
-const model: any = pluginSystem.findInterface(Editor.Model.IModel);
-const isRemote = (a: any) => a && "assetId" in a && "requestTiming" in a && "sourceType" in a;
-
-const out: any[] = [];
-const walk = (a: any) => {
-  if (!a) return;
-  if (isRemote(a)) {
-    const m = a.metadata;                        // Editor.Assets.RemoteAssetMetadata | null
-    out.push({
-      name: a.name,
-      assetId: String(a.assetId),                // Lens Cloud manifest ID
-      hasMetadata: !!m,
-      meta: m ? {
-        id: m.id,
-        name: m.name,
-        type: Number(m.type),                    // Editor.Assets.RemoteAssetType (numeric)
-        size: m.size,
-        url: m.resource?.url,
-        checksum: m.resource?.checksum,          // uppercase hex SHA-256
-        organization: m.organization ? { id: m.organization.id, name: m.organization.name } : null,
-        minCoreVersion: m.minCoreVersion,
-      } : null,
-    });
-  }
-  for (const k of (a.children ?? [])) walk(k);
-};
-for (const a of model.project.assetManager.assets) walk(a);
-return out;
+```text
+ExecuteEditorCode({
+  path: "<absolute path to specs-27-migration skill>/actions/list-remote-assets.ts",
+  args: {}
+})
 ```
 
-`metadata` is server-provided and nullable (`RemoteAssetMetadata?`) — guard for `null`. `metadata.type` is an `Editor.Assets.RemoteAssetType` enum value: `Mesh=0, Texture=1, ObjectPrefab=2, Script=3, Audio=4, MlAsset=5, Invalid=6`. The download is always a runtime bundle regardless of type, so `type` doesn't change how you fetch or upload — it tells you the asset type the bundle wraps, i.e. what the runtime callback will hand back (a `Mesh` → `RenderMesh`, an `ObjectPrefab` → `ObjectPrefab`, etc.) so you can write the consumer's success body in stage 4.
+`metadata` is server-provided and nullable (`RemoteAssetMetadata?`). `metadata.type` is an `Editor.Assets.RemoteAssetType` enum value: `Mesh=0, Texture=1, ObjectPrefab=2, Script=3, Audio=4, MlAsset=5, Invalid=6`. The download is always a runtime bundle regardless of type, so `type` doesn't change how you fetch or upload — it tells you the asset type the bundle wraps, i.e. what the runtime callback will hand back (a `Mesh` → `RenderMesh`, an `ObjectPrefab` → `ObjectPrefab`, etc.) so you can write the consumer's success body in stage 4.
 
 Also `grep` the project for `downloadAsset`, the asset's name, and any `RemoteReferenceAsset` script inputs — those are the consumers you'll rewrite in stage 4.
 
 ## Stage 2: Download the bundle bytes
 
-The bytes live at `metadata.resource.url`. Fetch them with `LensStudio:Network` and write them to disk with `LensStudio:FileSystem` — the download mechanism is identical for every asset type.
+Pass one stable remote asset ID from Stage 1 and a strictly validated `.prfb` basename per call. The action rejects caller-provided directories/paths, separators, traversal, dot-normalization, NUL, and non-`.prfb` names. It creates a fresh private `LensStudio:FileSystem.TempDir`, resolves the metadata and CDN URL internally, fetches with `LensStudio:Network`, and writes `body.toBytes()` to its generated path; raw CDN URLs and arbitrary output locations are never accepted through `args`.
 
-```ts
-// in ExecuteEditorCode
-const Network = await import("LensStudio:Network");
-const FS = await import("LensStudio:FileSystem");
-const model: any = pluginSystem.findInterface(Editor.Model.IModel);
-const isRemote = (a: any) => a && "assetId" in a && "requestTiming" in a && "sourceType" in a;
-
-const targets: any[] = [];
-const collect = (a: any) => { if (!a) return; if (isRemote(a)) targets.push(a); for (const k of (a.children ?? [])) collect(k); };
-for (const a of model.project.assetManager.assets) collect(a);
-
-const outDir = "<absoluteDownloadDir>";          // e.g. <projectDir>/DownloadedBundles
-const results: any[] = [];
-
-for (const a of targets) {
-  const m = a.metadata;
-  if (!m?.resource?.url) { results.push({ name: a.name, error: "no metadata.resource.url" }); continue; }
-
-  const req = new Network.HttpRequest();
-  req.url = m.resource.url;
-  req.method = Network.HttpRequest.Method.Get;
-
-  const resp: any = await new Promise((resolve) => Network.performHttpRequest(req, resolve));
-  // Guard the status too — a 403/404 returns an HTML/JSON error page with no resp.error,
-  // and writing that as the bundle silently corrupts the upload.
-  if (resp.error || resp.statusCode < 200 || resp.statusCode >= 300) {
-    results.push({ name: a.name, status: resp.statusCode, error: resp.error || "non-2xx status" });
-    continue;
+```text
+ExecuteEditorCode({
+  path: "<absolute path to specs-27-migration skill>/actions/download-remote-asset.ts",
+  args: {
+    remoteAssetId: "<remoteAssetId from list-remote-assets>",
+    outputFileName: "MyBundle.prfb"
   }
-
-  const bytes: Uint8Array = resp.body.toBytes();  // Editor.Buffer.toBytes() — never toString() for binary
-  // Sanitize to URL-safe chars: asset names with spaces/slashes break FS.writeFile here and
-  // fail the upload script's objectKey regex downstream. (.prfb is added on upload.)
-  const rawName = String(m.name || a.name) + "_" + String(m.id || a.assetId);
-  const fileName = rawName.replace(/[^A-Za-z0-9._-]/g, "_");
-  FS.writeFile(new Editor.Path(outDir + "/" + fileName), bytes);
-
-  results.push({ name: a.name, status: resp.statusCode, bytesWritten: bytes.length, expectedSize: m.size, checksum: m.resource.checksum, savedTo: outDir + "/" + fileName });
-}
-return results;
+})
 ```
 
-Then verify the download is byte-exact against the metadata — size and SHA-256 (the checksum is uppercase hex; compare case-insensitively), and confirm it's a runtime bundle:
+The action rejects invalid IDs/names before mutation and returns the metadata `checksum` and `size` alongside an opaque `downloadHandle` and generated `writeReceipt: { path, bytesWritten }`. It retains the TempDir under that handle for the current Lens Studio session. Use the returned receipt path immediately for byte-exact verification and upload. A failed download returns only a sanitized stable error, HTTP status, and the remote asset ID; it never reflects a signed URL from the native response. Then verify the download is byte-exact against that result — size and SHA-256 (the checksum is uppercase hex; compare case-insensitively), and confirm it's a runtime bundle:
 
 ```bash
-shasum -a 256 "<savedFile>"   # must equal metadata.resource.checksum (lowercased)
-stat -f%z "<savedFile>"       # must equal metadata.size
-file "<savedFile>"            # 'Zip archive data' — the .prfb runtime bundle format
+shasum -a 256 "<writeReceipt.path>"   # must equal returned checksum (lowercased)
+stat -f%z "<writeReceipt.path>"       # must equal returned size
+file "<writeReceipt.path>"            # 'Zip archive data' — the .prfb runtime bundle format
 ```
 
 ## Stage 3: Upload to Supabase
@@ -191,14 +138,14 @@ curl -s -X POST "$URL/storage/v1/object/static-assets/<Asset>.prfb" \
   -H "Authorization: Bearer $SERVICE_KEY" \
   -H "Content-Type: application/octet-stream" \
   -H "x-upsert: true" \
-  --data-binary "@<savedFile>"
+  --data-binary "@<writeReceipt.path>"
 
 # Verify the public URL (status + byte count should match the local file)
 curl -s -o /dev/null -w "%{http_code} %{size_download}\n" \
   "$URL/storage/v1/object/public/static-assets/<Asset>.prfb"
 ```
 
-The public URL the Lens will fetch is `<URL>/storage/v1/object/public/static-assets/<Asset>.prfb`. The helper script `scripts/upload_to_supabase.py` wraps this (`python3 scripts/upload_to_supabase.py <savedFile> static-assets <Asset>.prfb`) — cross-platform (macOS / Linux / Windows), stdlib only. (It reads `SERVICE_KEY` from a `supabase_storage_<user>` container; if your local project's container is named after the project instead, pass `SERVICE_KEY` in the environment.)
+The public URL the Lens will fetch is `<URL>/storage/v1/object/public/static-assets/<Asset>.prfb`. The helper script `scripts/upload_to_supabase.py` wraps this (`python3 scripts/upload_to_supabase.py <writeReceipt.path> static-assets <Asset>.prfb`) — cross-platform (macOS / Linux / Windows), stdlib only. (It reads `SERVICE_KEY` from a `supabase_storage_<user>` container; if your local project's container is named after the project instead, pass `SERVICE_KEY` in the environment.)
 
 For Snap Cloud / Souffle (or any hosted Supabase), swap the Docker discovery for the project's service-role key from the dashboard and use the project's `https://<ref>.supabase.co` URL. Everything else — the bucket, the upload, the public URL pattern, the loader-side code — is identical.
 
@@ -215,19 +162,22 @@ The bundled `assets/RemoteSupabaseLoader.ts` is the canonical drop-in. Use its `
 
 If the consumer was custom code that applied the mesh to a specific component, extend the `bundle` success callback to do that (e.g., `RenderMeshVisual.mesh = asset as RenderMesh`, or `(asset as ObjectPrefab).instantiate(parent)`) instead of the generic `print` — but keep the existing inputs working so the same loader can be reused for multiple assets.
 
-## Stage 5: Clean up
+## Stage 5: Release the retained download
 
-Delete the downloaded temp file once it's uploaded and verified:
+Once upload and verification succeed, release the retained private TempDir by passing only the handle to its owned cleanup action:
 
-```bash
-rm "<savedFile>"
+```text
+ExecuteEditorCode({
+  path: "<absolute path to specs-27-migration skill>/actions/release-remote-download.ts",
+  args: { downloadHandle: "<downloadHandle from download result>" }
+})
 ```
 
-**Do not delete the `.remoteReferenceAsset`** — it's the legacy stub the user may want to keep around for rollback or inspection. Removing it is the user's call. Nothing is written into `Assets/`, so there's nothing else to clean up there.
+If the Lens Studio session reset or the handle is unavailable before verification/upload, fail closed and re-download rather than claiming `writeReceipt.path` still persists. `alreadyReleased: true` is safe only for a retry after a known successful release. **Do not delete the `.remoteReferenceAsset`** — it's the legacy stub the user may want to keep around for rollback or inspection. Removing it is the user's call. Nothing is written into `Assets/`, so there's nothing else to clean up there.
 
 ## Stage 6: Verify
 
-Recompile (the `RecompileTypeScriptTool` MCP tool) and refresh the preview (the `RunAndCollectLogsTool` MCP tool). Read the log starting at the returned `byteOffset` and grep for the loader's tag (`RemoteSupabaseLoader`) plus `loaded` / `failed`. A successful run looks like:
+Recompile (the `RecompileTypeScriptTool` MCP tool) and refresh the preview (the `RunAndCollectLogsTool` MCP tool, with the same `previewName` as step 7b). Read the log starting at the returned `byteOffset` and grep for the loader's tag (`RemoteSupabaseLoader`) plus `loaded` / `failed`. A successful run looks like:
 
 ```
 [RemoteSupabaseLoader] loaded RuntimeBundle from <url>
@@ -254,7 +204,7 @@ If you see `failed`, the most common causes are:
 
 The stages above are the complete happy path — don't open a supporting file unless its trigger fires.
 
-- `references/remote-asset-editor-api.md` — **open when** an `ExecuteEditorCode` call throws or returns nothing (e.g. `invalid 'instanceof' right operand`, `metadata` is `null`, `body.toString()` returned garbage), or you need the exact `Editor.Assets.*` / `LensStudio:Network` / `LensStudio:FileSystem` type signatures to write a variant call. Holds the standalone enumerate + download snippets with full error handling.
+- `references/remote-asset-editor-api.md` — **open when** an `ExecuteEditorCode` action throws or returns nothing (e.g. `invalid 'instanceof' right operand`, `metadata` is `null`, `body.toString()` returned garbage), or you need the exact `Editor.Assets.*` / `LensStudio:Network` / `LensStudio:FileSystem` type signatures. It documents the path-backed enumerate and download actions and their receipts.
 - `references/remote-asset-loader-template.md` — **open when** the original `downloadAsset` consumer did more than log (assigned `RenderMeshVisual.mesh`, called `ObjectPrefab.instantiate(parent)`, applied a texture to a material) and you must extend the loader's `bundle` case beyond the default `print`.
 - `assets/RemoteSupabaseLoader.ts` — copy into the project's `Assets/` directory in stage 4.
 - `scripts/upload_to_supabase.py` — **use in stage 3 instead of raw `curl`** for the upload; creates the bucket, upserts the file, and verifies the public URL. Cross-platform (macOS / Linux / Windows), Python stdlib only. Pulls the service-role key from the local `supabase_storage_<user>` Docker container (pass `SERVICE_KEY` in the env for hosted/Souffle projects).

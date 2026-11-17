@@ -70,7 +70,7 @@ Run this step whenever a scenario-run call did NOT return a clean "succeeded" st
 
 The scenario-run capability does not include an error message on a failure, and an MCP-call timeout returns no status at all. Bumping the log level to DEBUG adds detail to the Lens Studio log but does not change the return value. To see what actually happened, you must read the Lens Studio log directly. Only the Lens-side scenario manager's pass / fail lines are authoritative — UI-side success logs from the LeafPlugin can lag, mis-match, or fire for scenarios that were actually aborted, so never cite them as evidence of a pass when the scenario-run call itself timed out. Procedure:
 
-1. **Set a log baseline.** Invoke the log-baseline / preview-reset capability with no arguments. It returns `{logFile, byteOffset}`. Hold onto both values — `logFile` is the absolute path to the active Lens Studio log file, and `byteOffset` marks the end of the log at this moment, so anything read from this offset onward will be output produced by the next scenario run.
+1. **Set a log baseline.** Invoke the log-baseline / preview-reset capability with no arguments. It returns `{logFile, byteOffset}`. With no arguments it resets the hidden "Headless Preview", not the panel LEAF runs in, so only the offset matters; ignore that preview's reset lines. Hold onto both values — `logFile` is the absolute path to the active Lens Studio log file, and `byteOffset` marks the end of the log at this moment, so anything read from this offset onward will be output produced by the next scenario run.
 2. **Re-run the failing scenario with `__leaf__log_level: "DEBUG"`** to maximize the detail emitted into the log.
 3. **Read the log slice starting at the baseline offset** and search it (case-insensitive) for entries mentioning the scenario id, the words FAILED / PASSED / RUNS, and reset-related keywords. The Lens-side scenario manager is the source of truth; its pass / fail entries describe the actual outcome, while the LeafPlugin UI logger emits informational success / failure lines that can lag or fire incorrectly when a scenario is aborted. Look for one of three patterns:
    - **Explicit failure:** a scenario-manager FAILED entry for the id, followed by a matching "completed with failure" entry from the message handler. The error reason on the FAILED line is the verbatim cause.
@@ -102,3 +102,32 @@ Notes when filling it in:
 - Quote the verbatim scenario-manager line for any failure or non-completion so the user can match it to their scenario source (cite scenario-manager lines only; do not retry automatically).
 
 If a scenario fails or does not complete, do not retry automatically. Run Step 5 to extract the underlying state from the Lens Studio log, surface the verbatim scenario-manager line and the suspected scenario line, then ask the user how they want to proceed — most LEAF failures point to a bug in either the scenario or the Lens code, and silent retries waste iteration time.
+
+## After preview: on-device runs
+
+Preview is not the end of the workflow when a device is connected. The LEAF MCP also exposes on-device capabilities — pushing the Lens to a connected device and running scenarios there. The `live-lens-tester` agent runs on-device scenarios by default whenever a device is connected (unless the user opts out); see its Workflow step 4.
+
+### On-device Step 1 (REQUIRED, do this FIRST): ensure the InternetModule require is present
+
+**On device the Lens must hold Internet permission or the LEAF bridge can never connect** — the plugin retries the connection indefinitely (hundreds to thousands of silent retries) and every on-device `scenario-list` / `scenario-run` call eventually times out with no status. A preview-only run does NOT need this, so it is easy to miss; you MUST check it before the first on-device call, not after a timeout.
+
+> **Temporary requirement.** This InternetModule require is only needed with the current platform/LEAF version. A future update will let the LEAF bridge connect without it, at which point this step can be dropped.
+
+Do this before pushing the Lens or listing/running any scenario on device:
+
+1. **Check `LeafIndex.ts`** (the test-owned index file, e.g. `Assets/**/LeafIndex.ts`) for a `require('LensStudio:InternetModule');` line at the top of the file.
+2. **If it is missing, add it** as the first statement in `LeafIndex.ts`, above the imports:
+   ```ts
+   require('LensStudio:InternetModule');
+   ```
+   Put it in the test-owned `LeafIndex.ts` — never in the user's Lens scripts. This is a temporary platform requirement and will not be needed in a future update once the platform no longer needs it.
+3. **Recompile via the MCP compile tool and confirm it succeeds** before pushing. Skipping the recompile means the pushed Lens still lacks the permission and the bridge still hangs.
+
+If an on-device `list`/`run` call has *already* timed out, this missing require is the most likely cause — check it before investigating the scenario, the network, or the device pairing.
+
+### On-device Step 2 onward
+
+Two more things to keep in mind for on-device runs:
+
+- **Same WiFi.** The computer running Lens Studio and the Specs must be on the **same WiFi network** for the push and the on-device run to connect. If the device isn't detected or the run times out with a connection error (and the InternetModule require from Step 1 is already in place), check the network next before blaming the scenario or Lens.
+- **Reset hand-interactor state between runs.** Scenarios that drive a hand interactor (`LeafHandInteractor` / the inverse-kinematics interactor) leave the Lens in whatever state the last interaction produced. Before the next on-device run, reset it by **re-pushing the Lens via the LEAF MCP push/send-to-device capability** — a fresh push reloads the Lens clean, which is more reliable than manually unwinding interactor state.

@@ -28,7 +28,7 @@ Attribute Lens Studio Preview frame time to concrete project systems. First make
 Before tracing, inventory:
 
 - scene roots, cameras, render targets, render layers, lights, and environment;
-- package roots such as SIK, SyncKit, WorldQuery, ML, Remote Services, WebView, audio, networking, storage;
+- package roots such as InteractionKit (IK), SyncKit, WorldQuery, ML, Remote Services, WebView, audio, networking, storage;
 - large renderables, text/UI, gaussian splats/4DGS, VFX, particles, animated/skinned rigs;
 - scripts with update loops, timers, polling, network callbacks, or interaction gates;
 - user journeys normally activated by gestures, speech, body/person tracking, scanning, movement, network state, or time.
@@ -57,7 +57,7 @@ Categories worth considering when designing the sweep:
 - camera/render backbone and required render targets;
 - tracking the Lens depends on (device, world, face, body, hand);
 - lighting, sky, shadows, environment;
-- package roots actually used (e.g. SIK, SyncKit, WorldQuery, Remote Services);
+- package roots actually used (e.g. InteractionKit, SyncKit, WorldQuery, Remote Services);
 - input/interaction systems;
 - onboarding/hint/debug UI;
 - static content (meshes, images, text, gaussian splats/4DGS);
@@ -66,7 +66,7 @@ Categories worth considering when designing the sweep:
 - audio, network, ML, persistence;
 - full Lens with exerciser enabled.
 
-Add targeted A/B traces when a cumulative delta is ambiguous, such as renderables-on/scripts-off, VFX-only with render dependencies, SIK-on/hand UI-off, package roots with user components disabled, or gaussian-splat group A vs group B.
+Add targeted A/B traces when a cumulative delta is ambiguous, such as renderables-on/scripts-off, VFX-only with render dependencies, InteractionKit-on/hand UI-off, package roots with user components disabled, or gaussian-splat group A vs group B.
 
 For every stage, record stage name, enabled roots/components, required dependencies kept on, disabled roots/components, Preview mode/input, harness state, screenshot path, and trace path.
 

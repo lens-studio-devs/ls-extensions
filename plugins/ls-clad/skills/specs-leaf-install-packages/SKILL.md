@@ -1,7 +1,7 @@
 ---
 name: specs-leaf-install-packages
 user-invocable: true
-description: Verifies the LEAF testing framework is installed in a Lens Studio project and installs it if missing. LEAF ships as a single Leaf package in the Asset Library; matches the SIK version on install. Use before writing or running LEAF tests.
+description: Verifies the LEAF testing framework is installed in a Lens Studio project and installs it if missing. LEAF ships as a single Leaf package in the Asset Library; matches the InteractionKit version on install. Use before writing or running LEAF tests.
 ---
 <!--
 Copyright 2026 Specs Inc.
@@ -31,22 +31,22 @@ The package listing tool only finds packages with a registered `NativePackageDes
 
 ### Decision
 
-If `Leaf` is found, report "LEAF is already installed" and proceed to Step 4 (verify SIK).
+If `Leaf` is found, report "LEAF is already installed" and proceed to Step 4 (verify InteractionKit).
 
 If it is missing, continue to Step 2.
 
-## Step 2: Detect SIK version
+## Step 2: Detect InteractionKit version
 
-LEAF depends on `SpectaclesInteractionKit` (required for all interactors; `Bitmoji 3D` is pulled in automatically for IK scenarios).
+LEAF depends on `InteractionKit` (required for all interactors; `Bitmoji 3D` is pulled in automatically for inverse-kinematics scenarios).
 
-Check the package listing results for `SpectaclesInteractionKit`.
+Check the package listing results for `InteractionKit`.
 
-If SIK is **not installed**:
-- Use the `ensure-package-installed` skill to install `SpectaclesInteractionKit` first
+If InteractionKit is **not installed**:
+- Use the `ensure-package-installed` skill to install `InteractionKit` first
 
-If SIK **is installed**, note the version for compatibility.
+If InteractionKit **is installed**, note the version for compatibility.
 
-If the project has an older SIK version and compilation fails due to SIK/LEAF mismatches, **ask the user** whether they want to update SIK. To update, use the MCP package install tool with the SIK package URI and `assetName: "SpectaclesInteractionKit"`. Note that updating SIK might cause new compilation errors in the project that need to be resolved. When resolving errors, do not modify the code in the LEAF or SIK packages — adapt the project code to match the new APIs.
+If the project has an older InteractionKit version and compilation fails due to InteractionKit/LEAF mismatches, **ask the user** whether they want to update InteractionKit. To update, update the installed package in place via per-package `pullUpdate(desc)` using the `update-lens-packages` skill — do not install `InteractionKit` again, which creates a duplicate copy. Note that updating InteractionKit might cause new compilation errors in the project that need to be resolved. When resolving errors, do not modify the code in the LEAF or InteractionKit packages — adapt the project code to match the new APIs.
 
 ## Step 3: Find and install the LEAF package
 
@@ -66,4 +66,4 @@ Also search for an existing `LeafIndex` file (`scenariosIndex` keyword). If none
 
 ## Completion
 
-Report LEAF version installed (or already present), SIK version, whether a LeafIndex exists, and installation status. On failure, suggest manual installation from the Lens Studio Asset Library.
+Report LEAF version installed (or already present), InteractionKit version, whether a LeafIndex exists, and installation status. On failure, suggest manual installation from the Lens Studio Asset Library.

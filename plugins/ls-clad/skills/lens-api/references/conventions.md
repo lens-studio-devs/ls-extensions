@@ -93,7 +93,7 @@ import { MyHelper } from "./MyHelper"
 
 ## Component scaffold (general)
 
-A starting template that uses only base Lens Studio runtime APIs. SIK / RSG / SyncKit / UIKit imports are documented in their owning skills (`specs-interaction-recipes`, `specs-ai-remote-service`, `specs-sync-kit`, `specs-build-ui`).
+A starting template that uses only base Lens Studio runtime APIs. IK / RSG / SyncKit / UIKit imports are documented in their owning skills (`specs-interaction-recipes`, `specs-ai-remote-service`, `specs-sync-kit`, `specs-build-ui`).
 
 ```typescript
 /**
@@ -159,4 +159,4 @@ export class ComponentName extends BaseScriptComponent {
 
 - `lens-api` SKILL.md — component lifecycle, events, Decorator Reference table (`@input` / `@hint` / `@allowUndefined` / `@label`)
 - `component-access-patterns.md` — TS-to-TS and TS-to-JS component access
-- `ls-clad:ensure-package-installed` — install `.lspkg/` packages (SIK / UIKit / SyncKit / RSG) before importing from them
+- `ls-clad:ensure-package-installed` — install `.lspkg/` packages (IK / UIKit / SyncKit / RSG) before importing from them

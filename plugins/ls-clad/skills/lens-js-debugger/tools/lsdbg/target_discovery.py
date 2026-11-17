@@ -57,6 +57,17 @@ def discover_targets(host: str, port: int, timeout_s: float = DEFAULT_TIMEOUT_S)
     return DiscoveryResult(ok=True, targets=data, error="")
 
 
+# Lens Studio exposes each visible Preview panel as a CDP target whose url is
+# `preview://<panel id>` and whose title is the panel title ("Preview 1"). That
+# title is also the `previewName` the Lens Studio MCP preview tools accept.
+# Hidden previews (the MCP tools' "Headless Preview") are never listed.
+PREVIEW_PANEL_URL_PREFIX = "preview://"
+
+
+def is_preview_panel(target: dict[str, Any]) -> bool:
+    return str(target.get("url") or "").startswith(PREVIEW_PANEL_URL_PREFIX)
+
+
 # `lsof` lookup completes in ~50ms on a healthy machine; a multi-second
 # stall almost always means we're racing a Lens Studio crash. Capping the
 # budget keeps disconnect diagnostics from blocking the error envelope.

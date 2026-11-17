@@ -1,6 +1,6 @@
 ---
 name: specs-debug
-description: "Specs layer on `ls-clad:lens-debug`. Load alongside it for Specs-only bugs: SIK, RSG, SyncKit, SnapML, VIO/SLAM tracking, on-device perf tooling, Specs perf rules, world-space UI render order / z-fighting, feature compatibility."
+description: "Specs layer on `ls-clad:lens-debug`. Load alongside it for Specs-only bugs: IK (SIK), RSG, SyncKit, SnapML, VIO/SLAM tracking, on-device perf tooling, Specs perf rules, world-space UI render order / z-fighting, feature compatibility."
 argument-hint: [subsystem and symptom]
 user-invocable: false
 ---
@@ -15,12 +15,12 @@ Debugging issue: **$ARGUMENTS**
 
 **Layered on top of `ls-clad:lens-debug`** — start there, then read this *in addition* once the symptom is Specs-specific. The orchestrator's rules (Step 0, Pacing, Stop-and-ask, Reading the preview) and its general triage all apply here.
 
-## SIK (SpectaclesInteractionKit)
+## InteractionKit (IK)
 
 ```typescript
-import {Interactable} from 'SpectaclesInteractionKit.lspkg/Components/Interaction/Interactable/Interactable'
-import {HandInputData} from 'SpectaclesInteractionKit.lspkg/Providers/HandInputData/HandInputData'
-import {WorldCameraFinderProvider} from 'SpectaclesInteractionKit.lspkg/Providers/CameraProvider/WorldCameraFinderProvider'
+import {Interactable} from 'InteractionKit.lspkg/Components/Interaction/Interactable/Interactable'
+import {HandInputData} from 'InteractionKit.lspkg/Providers/HandInputData/HandInputData'
+import WorldCameraFinderProvider from 'InteractionKit.lspkg/Providers/CameraProvider/WorldCameraFinderProvider'
 
 // Is hand tracking active?
 const hand = HandInputData.getInstance().getHand('right')
@@ -33,17 +33,15 @@ interactable.onTriggerStart.add(() => {
 })
 
 // Is WorldCameraFinderProvider returning a camera?
-const cam = WorldCameraFinderProvider.getInstance()
-console.log('Camera found: ' + (cam !== null))
+const cam = WorldCameraFinderProvider.getInstance().getComponent()
+console.log('Camera found: ' + !isNull(cam))
 ```
 
 If `isTracked()` is always false, the Lens is running on a device without hand tracking (phone preview, or Specs with the hand provider disabled) — guard the rest of the script with that check rather than asserting tracking. If `onTriggerStart` never fires, confirm the `Interactable` is on the same scene object as the collider mesh (not on a parent or sibling).
 
 ## UI rendering — z-fighting, render order, depth (world-space UIKit)
 
-Symptoms: content bleeds through a panel, panels flicker, or elements paint in the wrong overlap order. This is almost never a layout bug — it is a Canvas-sort or depth-flag bug. See `specs-build-ui` SKILL.md → *Render-order rules* and `references/gotchas.md` for the authoritative checklist.
-
-Quick triage: (1) confirm no manual `renderOrder` on any child, (2) confirm content child is +0.6 cm forward in Z, (3) confirm `Component.Image` has `depthWrite = false`.
+Symptoms: content bleeds through a panel, panels flicker, or elements paint in the wrong overlap order. Apply the UIKit 4.0 rendering rules in `/specs-build-ui` (`references/uikit-4.0.md`): a Canvas on every screen root plus one absolute `+Z` (~0.05–0.1 cm) on the node that begins each stacked coplanar layer (never staggered per nesting level), children created with `createChildSceneObjectWithParentLayer` so they inherit the render layer, and a `+Z` float for anything that must overlap other content (popups, dropdown drawers). Depth wins over draw order.
 
 ## Remote Service Gateway (Gemini / OpenAI / websocket)
 
@@ -129,4 +127,4 @@ Some APIs (custom locations, certain camera modes, specific ML capabilities) are
 - `ls-clad:lens-api` → `references/performance.md` — general scripting perf patterns
 - `ls-clad:perfetto-trace-analysis` — interpreting CPU traces captured from Spectacles Monitor
 - `ls-clad:specs-sync-kit` — multiplayer ownership and SyncEntity deep-dives
-- `/specs-build-ui` (this plugin) → *Render-order rules* + `references/gotchas.md` — source of truth for world-space UI depth / z-fighting / Canvas sort
+- `/specs-build-ui` — selects the installed UI package and loads its version-aligned rendering guidance

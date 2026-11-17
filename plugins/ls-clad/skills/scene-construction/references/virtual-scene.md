@@ -26,7 +26,7 @@ For scene construction, use GraphQL mainly for discovery/introspection and prese
 |---|---|
 | `presets(type: SceneObject) { name }` — list available SceneObject presets | `presets { name assetType }` — list available asset presets |
 | `__type` / `__schema` — schema introspection | `__type` / `__schema` — schema introspection |
-| `createSceneObjectFromPreset(presetName: "CameraObjectPreset" \| "ScreenImageObjectPreset" \| "ScreenTextObjectPreset" \| ...)` — pass the literal `*Preset` identifier, **not** the display name (e.g. `"Camera Object"` will fail). Discover via `presets(type: SceneObject) { name }`. | `allAssets(typeFilter: "...", nameContains: "...")` / `assetsByName(...)` — search the asset library, including package-imported assets like SIK prefabs (VS `read` doesn't index the broader asset library well). Standalone asset rename/move/delete/property edits also use asset-graphql directly. |
+| `createSceneObjectFromPreset(presetName: "CameraObjectPreset" \| "ScreenImageObjectPreset" \| "ScreenTextObjectPreset" \| ...)` — pass the literal `*Preset` identifier, **not** the display name (e.g. `"Camera Object"` will fail). Discover via `presets(type: SceneObject) { name }`. | `allAssets(typeFilter: "...", nameContains: "...")` / `assetsByName(...)` — search the asset library, including package-imported assets like IK prefabs (VS `read` doesn't index the broader asset library well). Standalone asset rename/move/delete/property edits also use asset-graphql directly. |
 
 VirtualScene apply has no schema-shape failure mode (no `Cannot query field 'X' on Y` or "must have a selection of subfields" errors). Instructions are loose JSON validated against an allowlist; typos surface as `validate.*` errors with the allowed keys listed inline.
 
@@ -96,8 +96,8 @@ Native type:
 
 ### Prefab Instantiation
 ```json
-{ "id": "$temp:sik", "name": "SIK",
-  "_prefab": "@asset:SpectaclesInteractionKit.lspkg/Prefabs/SpectaclesInteractionKit.prefab" }
+{ "id": "$temp:ik", "name": "InteractionKit",
+  "_prefab": "@asset:InteractionKit.lspkg/Prefabs/InteractionKit.prefab" }
 ```
 
 ### Physics Components

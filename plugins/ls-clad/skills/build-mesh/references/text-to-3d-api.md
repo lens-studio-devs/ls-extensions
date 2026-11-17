@@ -18,23 +18,22 @@ The API is request/response only — **there is no streaming/SSE endpoint**; tra
 
 ## Request body (`POST /v1/generations`)
 
-**Provide `prompt` (text→3D) or `input_image_data_url` (image→3D)** — at least one is required. `prompt` / `style` / `negative_prompt` are whitespace-normalized.
+**Provide a `prompt`** — it is required. `prompt` / `style` / `negative_prompt` are whitespace-normalized.
 
 | Field | Type | Constraints | Notes |
 |---|---|---|---|
-| `prompt` | string | 1–1500 chars | The text→3D input — this skill's path. |
+| `prompt` | string | 1–1500 chars | The text→3D input. |
 | `seed` | integer | ≥ 0 | Reproducible output. |
 | `output_quality` | enum | `compact` \| `balanced` \| `standard` | GLB output budget. Default `balanced`. |
 | `preview_quality` | enum | `fast` \| `balanced` \| `high` | Image (preview) stage. Default `balanced`. |
 | `reconstruction_quality` | enum | `fast` \| `balanced` \| `high` | 3D reconstruction stage. Default `balanced`. |
 | `style` | string | ≤ 500 chars | Style hint (e.g. "low-poly", "claymation"). |
 | `negative_prompt` | string | ≤ 1000 chars | What to avoid. |
-| `input_image_data_url` | string | ≤ ~15 MB | `data:` URL for image→3D (alternative to `prompt`). |
 | `callback_url` | string | ≤ 2048 chars | Accepted but not currently delivered (no webhook) — don't rely on it; poll instead. |
 
 ### Enum meaning
 
-A two-stage pipeline — a text→image (preview) stage driven by `preview_quality`, then an image→3D reconstruction stage driven by `reconstruction_quality`. `output_quality` is independent: it sets the **GLB output budget** (mesh density + texture size) and does **not** change how much detail the model generates. All three default to `balanced`.
+A two-stage pipeline — a text→image (preview) stage driven by `preview_quality`, then a 3D reconstruction stage driven by `reconstruction_quality`. `output_quality` is independent: it sets the **GLB output budget** (mesh density + texture size) and does **not** change how much detail the model generates. All three default to `balanced`.
 
 - **`output_quality`** — output GLB budget, ordered `compact` < `balanced` < `standard` by triangle count and texture resolution. `compact` is the lightest (tight on-device budgets, or many assets in one scene); `standard` is the heaviest. Trades file size and render cost, not generation fidelity.
 - **`preview_quality`** — the image stage's resolution and step count, ordered `fast` < `balanced` < `high`. Higher = a crisper reference image, at more time.
@@ -102,8 +101,7 @@ Errors return a `{ "detail": ... }` JSON envelope (`detail` is a string, or a va
 
 | HTTP | Meaning | Retryable? |
 |---|---|---|
-| 422 | Request validation — bad enum, prompt length, or neither `prompt` nor `input_image_data_url` | no — fix the body |
-| 413 | `input_image_data_url` exceeds the size cap | no |
+| 422 | Request validation — bad enum or prompt length | no — fix the body |
 | 404 | Unknown `job_id` | no |
 | 401 | Auth rejected → sign in to Lens Studio | no |
 | 403 | Forbidden → account is signed in but lacks inference-API access | no |

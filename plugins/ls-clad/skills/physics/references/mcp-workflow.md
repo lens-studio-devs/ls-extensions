@@ -10,7 +10,7 @@ How to drive Lens Studio MCP tools when the work is **physics-specific**. Generi
 - `scene-construction` → `references/scene-graphql.md` — `setProperty` / `valueType` / `enumType` / `setLocalTransform` syntax.
 - `scene-construction` → `references/asset-graphql.md` — `createAsset` / `createAssetFromPreset` / asset property syntax.
 - `editor-api` — `pluginSystem.findInterface(...)` preamble, `safeDeepFind`, script-component-to-TS-asset wiring, "editor model doesn't reflect runtime sim".
-- `preview-inspection` — `PreviewPanelTool` capture loop, `MovePreviewCamera` quirks, `outputPath` rule, component-tree introspection, log-based verification.
+- `preview-inspection` — capture loop, `MovePreviewCamera` quirks, `outputPath` rule, component-tree introspection, log-based verification.
 
 This file covers only the physics-specific pieces of those workflows.
 

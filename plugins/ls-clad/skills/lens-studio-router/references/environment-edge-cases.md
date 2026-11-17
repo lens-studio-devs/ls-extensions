@@ -5,56 +5,21 @@ SPDX-License-Identifier: Apache-2.0
 
 # Environment edge cases — /lens-studio-router Gate
 
-On-demand detail for the router's Gate phase. Read this when the initial `ListAllPanels` probe fails, when an `open -a` launch/switch needs an MCP wait, or when you need to classify a blocker into the payload taxonomy. The happy path (probe succeeds, project matches, sign-in true) never needs this file.
+On-demand detail for the router's Gate phase. Read this only when the initial Gate probe (`ExecuteEditorCode` running `references/gate-diagnose.ts`) fails or a user-approved switch needs an MCP wait. The successful-probe branch gets path/version from `LensStudio:App`.
 
-## Detect compatible Lens Studio installs (5.22 or higher)
+## Find the Lens Studio executable
 
-Probe candidate app bundles before doing MCP work:
+This section owns how every skill finds the Lens Studio executable for a project. Lens
+Studio 5.25 and later writes `ls-live-instance.json` beside the project's `.mcp.json` each time it
+opens the project. Read its `executablePath` and record it as `lens_studio_path`; that is the only
+source. Do not search the disk, read app bundles or the registry, or ask the user to pick an install.
+A skill that has to run before the project has a record, such as `specs-27-migration` on a project
+never opened in 5.25 or higher, asks the user for the executable path instead.
 
-```bash
-# Standard public install
-test -d "/Applications/Lens Studio.app" && echo "/Applications/Lens Studio.app" || true
+- **No `ls-live-instance.json`, or it has no `executablePath`** → blocked payload `reason: lens_studio_missing`.
+- **`executablePath` does not exist on disk** → blocked payload `reason: lens_studio_missing`; name the missing path in the explanation.
 
-# Internal/beta builds published as LS_<version>_<channel>.app
-find /Applications -maxdepth 1 -name 'LS_*.app' 2>/dev/null
-
-# Spotlight fallback for custom install paths
-mdfind "kMDItemContentType == 'com.apple.application-bundle' && kMDItemDisplayName == 'Lens Studio'" 2>/dev/null
-```
-
-Use these probes verbatim — do NOT improvise additional glob patterns (e.g. `/Applications/*ens*tudio*`): an unmatched glob aborts the whole command under zsh with `no matches found`, before any `2>/dev/null` or `|| true` can suppress it. `find -name` takes its pattern as a plain argument, so it is immune.
-
-Merge and dedupe the results as `lens_studio_candidates`.
-
-For each candidate, read its bundle version:
-
-```bash
-/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "<candidate>/Contents/Info.plist" 2>/dev/null || \
-  defaults read "<candidate>/Contents/Info" CFBundleShortVersionString 2>/dev/null || \
-  echo "UNKNOWN_VERSION"
-```
-
-Partition candidates against the **5.22 minimum**. A candidate is **compatible** when its version is `5.22` or higher (`5.22`, `5.23`, `5.24`, … and later majors), **incompatible** when below `5.22` or `UNKNOWN_VERSION`. Compare version-aware (`sort -V`), NOT by string prefix or lexical sort — a prefix test rejects `5.23` and every later release, and a lexical sort mis-ranks `5.100` below `5.22`:
-
-```bash
-# ver_ok "<version>" → exit 0 iff version >= 5.22 (version-ordered, not lexical)
-ver_ok() {
-  [ "$1" != "UNKNOWN_VERSION" ] && \
-  [ "$(printf '5.22\n%s\n' "$1" | sort -V | head -1)" = "5.22" ]
-}
-```
-
-- `lens_studio_compatible_candidates` — `ver_ok` true (version ≥ 5.22).
-- `lens_studio_incompatible_candidates` — version below 5.22, or `UNKNOWN_VERSION`.
-
-Branch on the partition:
-
-- **0 total candidates** → blocked payload `reason: lens_studio_missing`.
-- **0 compatible, 1+ incompatible** → blocked payload `reason: lens_studio_wrong_version`; include the detected versions/paths in the explanation.
-- **1 compatible** → record `lens_studio_path` and `lens_studio_version`, ignore incompatible candidates, continue.
-- **2+ compatible (multi-install picker)** → ask with the runtime's blocking-ask facility: *"Which Lens Studio (5.22 or higher) should I use for this session?"* One option per compatible candidate path — label = basename + version, description = full path plus any obvious channel hint parsed from the name (`Internal`, `Public`, `Public_Release`, or `custom path`). Do not show incompatible candidates as selectable options; mention them only as ignored. Do not recommend or pre-select. Record the answer as `lens_studio_path`. If no human can answer in this run, blocked payload `reason: lens_studio_ambiguous` — do not pick the already-running app automatically.
-
-If the user supplies a custom path, verify it with `test -d "<path>"` and read its bundle version. Path doesn't exist → blocked payload `reason: lens_studio_ambiguous` (`suggested_next_step: Provide a valid Lens Studio 5.22-or-higher .app bundle path.`). Exists but below 5.22 → blocked payload `reason: lens_studio_wrong_version`.
+Native Linux Lens Studio is unsupported; return `lens_studio_missing` with a supported-host explanation.
 
 ## Launch and wait for MCP
 
@@ -64,24 +29,29 @@ Is Lens Studio running?
 pgrep -fl "Lens Studio" 2>/dev/null || pgrep -fl "LS_" 2>/dev/null || echo "NOT_RUNNING"
 ```
 
-- **NOT_RUNNING** → launch the chosen app with the project, tell the user you're waiting for MCP, then run the poll loop below:
-  ```bash
-  open -a "<lens_studio_path>" "<project_path>"
-  ```
-- **Running, but not the selected compatible (5.22+) app** → blocked payload `reason: lens_studio_wrong_version` (`suggested_next_step: Quit the incompatible Lens Studio instance, launch <lens_studio_path>, open <project_path>, then re-invoke /lens-studio-router.`).
-- **Running, probe failed anyway** → the running instance may have no project loaded, may be mid-launch, or may have the MCP plugin off. Open the project explicitly (`open -a "<lens_studio_path>" "<project_path>"`), tell the user, then run the poll loop.
+On Windows use `Get-CimInstance Win32_Process`; do not launch a second copy when a Lens Studio main
+process is already running but MCP is unreachable.
 
-**Poll loop.** MCP is not immediately ready after `open -a`. Poll the `ListAllPanels` MCP tool up to about 30 seconds total, sleeping 2s between attempts. This is the lightweight connection check only — do not configure MCP, edit `.mcp.json`, or attempt to repair the server from this skill.
+- **NOT_RUNNING** → launch `lens_studio_path` directly with the project, tell the user you're waiting for MCP, then run the poll loop below. Do not use `open -a`: it can redirect into another running instance.
+  ```bash
+  nohup "<lens_studio_path>" "<project_path>" >/dev/null 2>&1 </dev/null &
+  ```
+  On Windows use
+  `Start-Process -FilePath $lensStudioPath -ArgumentList ('"{0}"' -f $projectPath)`.
+- **Running from a different executable than `lens_studio_path`** → blocked payload `reason: lens_studio_wrong_version` (`suggested_next_step: Quit the other Lens Studio instance, launch <lens_studio_path>, open <project_path>, then re-invoke /lens-studio-router.`).
+- **Running, probe failed anyway** → do not launch anything; classify the error as `mcp_plugin_off` or `mcp_down`.
+
+**Poll loop.** MCP is not immediately ready after launch. Poll with the Gate probe itself — `ExecuteEditorCode` running `references/gate-diagnose.ts` by path — up to about 30 seconds total, sleeping 2s between attempts. This is the connection check only — do not configure MCP, edit `.mcp.json`, or attempt to repair the server from this skill.
 
 ```bash
 for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-  # invoke the ListAllPanels MCP tool here
-  # break on success
+  # invoke ExecuteEditorCode with path: references/gate-diagnose.ts here
+  # break when it returns JSON
   sleep 2
 done
 ```
 
-- **Succeeds** → MCP is reachable; return to the router's Gate (sign-in check).
+- **Returns JSON** → return to the router's successful-probe branch with that result; it populates the ready payload.
 - **Times out / fails** → classify:
   - Re-run the `pgrep` probe. No process running → `reason: mcp_not_running`.
   - Error indicates no project / no document loaded → `reason: no_project_open`.
@@ -96,13 +66,12 @@ Every blocked payload uses the router's Failure-modes template. `reason` values 
 | `reason` | When it fires | `suggested_next_step` |
 |---|---|---|
 | `no_project_present` | No `.esproj` and no `Assets/` + `Packages/` at cwd. The router never scaffolds. | Open Lens Studio with the project you intend to build with, then fully restart your coding-assistant session so it re-registers the Lens Studio MCP server at startup. Re-invoke `/lens-studio-router` (or, in preflight mode, the skill that triggered the preflight) from that project's directory. |
-| `lens_studio_missing` | 0 install candidates found. | Install Lens Studio 5.22 or higher, launch it, open `<project_path>`, then re-invoke `/lens-studio-router`. |
-| `lens_studio_wrong_version` | Only sub-5.22 / `UNKNOWN_VERSION` candidates; or the running process isn't the selected compatible app; or a user-supplied path is below 5.22. | Install or switch to Lens Studio 5.22 or higher, open `<project_path>`, then re-invoke `/lens-studio-router`. |
-| `lens_studio_ambiguous` | 2+ compatible installs and no human can answer; or a user-supplied custom path doesn't exist. | Provide a valid Lens Studio 5.22-or-higher `.app` bundle path (or answer the picker interactively). |
+| `lens_studio_missing` | No `ls-live-instance.json` with an `executablePath` beside `.mcp.json`, or that path no longer exists. | Open `<project_path>` in Lens Studio 5.25 or higher, then re-invoke `/lens-studio-router`. |
+| `lens_studio_wrong_version` | The running Lens Studio is below 5.25 or has an unreadable version; or a Lens Studio other than `lens_studio_path` is running. | Quit that Lens Studio, open `<project_path>` in Lens Studio 5.25 or higher, then re-invoke `/lens-studio-router`. |
 | `mcp_plugin_off` | The Claude Code schema preload fails (MCP server not registered at session start), or Lens Studio is running but MCP is connection-refused. | Launch Lens Studio with the MCP plugin enabled (enable it from the app's Plugins/Extensions UI — plugin names vary by build; do not invent an exact name; if the user can't find it, point to https://developers.snap.com/spectacles), then re-invoke `/lens-studio-router`. |
 | `mcp_not_running` | The poll loop timed out and no Lens Studio process is running. | Launch `<lens_studio_path>`, open `<project_path>`, then re-invoke `/lens-studio-router`. |
 | `no_project_open` | MCP error indicates no project/document is loaded. | Open `<project_path>` in Lens Studio, then re-invoke `/lens-studio-router`. |
 | `mcp_down` | Auth/token mismatch or any other unclassified MCP failure. | Restart Lens Studio so the MCP token refreshes, then re-invoke `/lens-studio-router`. If the token still fails, restart the agent client so it re-reads `.mcp.json`. |
 | `wrong_project_open` | A different project is loaded and the user canceled the switch (or no human could answer). Include `current_project` and `target_project` in the explanation. | Close `<current_project>` in Lens Studio (or open `<project_path>` manually), then re-invoke `/lens-studio-router`. |
-| `not_signed_in` | The sign-in check didn't return `true` after the ask-and-recheck-once flow, or the user canceled. | Sign in to Lens Studio (top-right profile/toolbar; confirm the OAuth window completed), then re-invoke `/lens-studio-router`. |
+| ~~`not_signed_in`~~ | **Retired as a router blocker.** Sign-in is advisory (see SKILL → Route → Sign-in): the router hands off with `is_authorized: false`/`unknown` and proceeds. The plan step plans around the features that need sign-in, and gated skills that still hit `not_signed_in` skip that feature and continue (`build-mesh` → Signed out). The router no longer emits this reason. | — |
 | `platform_choice_required` | Platform unstated by user and project, and no human can answer in this run. | Re-run interactively, or state the platform (Specs or Snapchat) in the request. |

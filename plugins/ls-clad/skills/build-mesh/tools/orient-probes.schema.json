@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "orient-probes ExecuteEditorCode return",
+  "description": "setup → {probes}; teardown → {torn_down}; either may return {error}.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["probes"],
+      "additionalProperties": false,
+      "properties": {
+        "probes": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": ["name", "probeName", "center", "distance"],
+                "additionalProperties": false,
+                "properties": {
+                  "name": { "type": "string" },
+                  "probeName": { "type": "string" },
+                  "center": {
+                    "type": "object",
+                    "required": ["x", "y", "z"],
+                    "additionalProperties": false,
+                    "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" } }
+                  },
+                  "distance": { "type": "number", "exclusiveMinimum": 0 }
+                }
+              },
+              {
+                "type": "object",
+                "required": ["name", "error"],
+                "additionalProperties": false,
+                "properties": { "name": { "type": "string" }, "error": { "type": "string" } }
+              }
+            ]
+          }
+        }
+      }
+    },
+    { "type": "object", "required": ["torn_down"], "additionalProperties": false, "properties": { "torn_down": { "type": "boolean" } } },
+    { "type": "object", "required": ["error"], "additionalProperties": false, "properties": { "error": { "type": "string" } } }
+  ]
+}

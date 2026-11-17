@@ -48,6 +48,8 @@ Invoke during planning, not just execution — these document gotchas that cost 
 | Topic | Skill |
 |---|---|
 | Cameras, 2D/screen-space rendering, invisible objects | `camera-and-rendering` |
+| Lighting — `LightSource`, ambient-is-a-SceneObject, aggregate-exposure white-clip trap | `references/lighting.md` |
+| Animation — script-built tweens (native `AnimationPlayer`) and imported clip playback, `frames:0` T-pose trap | `lens-api` → `references/animation-playback.md` |
 | Materials from presets, color/PBR/texture properties, assignment | `materials` |
 | Custom shaders (`.graphShader` YAML, GLSL code nodes) — only when no material preset works | `shader-graph` |
 | Custom VFX / particle graphs (`.graphVfx`) | `vfx-graph` |

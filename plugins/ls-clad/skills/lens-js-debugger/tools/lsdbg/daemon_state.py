@@ -62,6 +62,17 @@ HINT_CODE_AUTO_FRAMED = "auto-framed-top"
 # pause-on-exceptions is armed: the pause is the eval's own throw, not an
 # unrelated breakpoint. Agent should `backtrace`/`health`, then `resume`.
 HINT_CODE_EVAL_PAUSED_ON_EXCEPTION = "eval-paused-on-exception"
+# Rides on `attach` when the target is a visible Preview panel: lsdbg sees only
+# that panel's Lens VM, so MCP preview tools must pass the panel title as
+# `previewName` to act on the same VM. Hidden previews are separate VMs.
+HINT_CODE_ATTACH_PREVIEW_NAME = "attach-preview-name"
+ATTACH_PREVIEW_NAME_HINT = (
+    "lsdbg debugs only visible Preview panels. Lens Studio MCP preview tools (PreviewInteractTool, "
+    "InjectPreviewGesture, QueryRuntimeSceneTool, RunAndCollectLogsTool, CaptureRuntimeViewTool, ...) "
+    "act on this Lens VM only when called with previewName set to `previewName` above. Without it they "
+    'can drive a hidden preview such as "Headless Preview" — a separate VM lsdbg cannot attach to, so '
+    "breakpoints, probes and console-log here never see those interactions."
+)
 # Emitted as `warningCode` (not `hintCode`) on inspect-host-object when a `this`
 # read resolves in global scope; named WARNING_CODE_* to match its use.
 WARNING_CODE_GLOBAL_SCOPE_THIS = "global-scope-this"

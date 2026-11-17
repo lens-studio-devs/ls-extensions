@@ -33,27 +33,19 @@ in the same editor session you started it in.
 
 #### 1a. Locate Lens Studio (and lock the version for the whole skill)
 
-Find the Lens Studio binary. Check these paths in order and use the first one that exists:
-
-```
-/Applications/Lens Studio.app/Contents/MacOS/Lens Studio
-/Applications/Lens Studio 5.app/Contents/MacOS/Lens Studio
-```
-
-If neither exists, ask the user where Lens Studio is installed. Always quote the path in
-shell commands since it contains spaces.
+Read `executablePath` from `ls-live-instance.json` in the project directory, beside `.mcp.json`
+(see [`lens-studio-router` → Find the Lens Studio executable](../lens-studio-router/references/environment-edge-cases.md#find-the-lens-studio-executable)).
+If the file is missing, the project has not been opened in Lens Studio 5.25 or higher yet: ask
+the user for the path to the Lens Studio executable to upgrade with. Do not search the disk.
+Always quote the path in shell commands since it contains spaces.
 
 **Capture two values from this step and reuse them everywhere below:**
 
-- `<LENS_STUDIO>` — the binary path, e.g. `/Applications/Lens Studio.app/Contents/MacOS/Lens Studio`. Used for every `--exec` CLI call (1d, 1e, 1f).
-- `<LENS_STUDIO_APP>` — the `.app` bundle path, derived by stripping `/Contents/MacOS/Lens Studio` from `<LENS_STUDIO>`, e.g. `/Applications/Lens Studio.app`. Used for the GUI launch (1h).
+- `<LENS_STUDIO>` — the executable path, e.g. `/Applications/Lens Studio.app/Contents/MacOS/Lens Studio`. Used for every `--exec` CLI call (1d, 1e, 1f).
+- `<LENS_STUDIO_APP>` — the `.app` bundle path: `<LENS_STUDIO>` up to, not including, `/Contents/`, e.g. `/Applications/Lens Studio.app`. Used for the GUI launch (1h).
 
-Many machines have multiple Lens Studio installations (e.g. an `/Applications` install plus
-a developer debug build under `~/Snapchat/Dev/...`). Pick one binary up front and thread it
-through every subsequent step so the CLI upgrade and the GUI launch use the same install
+Thread these through every later step so the CLI upgrade and the GUI launch use the same install
 (the version-mismatch risk this avoids is detailed at Step 1h).
-
-If the user has multiple Lens Studio installations and you cannot tell which one they want from context, ask — do not silently pick.
 
 #### 1b. Locate the project file
 
@@ -189,6 +181,13 @@ Do not continue past this point in the current session.
 
 ### 2. Update All Packages with Pull Update
 
+> From Lens Studio 5.25 the Specs packages are renamed and restart at 4.0.0
+> (`SpectaclesInteractionKit` -> `InteractionKit`, `SpectaclesUIKit` -> `UIKit`,
+> `SpectaclesSyncKit` -> `SyncKit`, …). The legacy names in this skill are the pre-4.0 ones.
+> Read `/specs-package-renames` before updating: imports must follow the installed folder
+> name, and only one copy of each package may remain. The update action leaves legacy-named
+> packages untouched (`blockedLegacy`); move them to 4.0 with `/specs-package-renames` rule 5.
+
 With the project now on the latest Lens Studio version (and the editor restarted so MCP
 tools are available), bring every installed package to the latest available Asset Library
 version. Newer package versions may already include SPECS 27 API support and can reduce
@@ -198,19 +197,13 @@ the number of code changes needed in later steps.
 If the tools are still not present, the user has not yet restarted their editor — stop and
 remind them.
 
-Use the [`update-lens-packages`](../update-lens-packages/SKILL.md) skill and tell it to
-update all updatable packages. That skill uses the supported pull-update flow:
-
-1. list installed `NativePackageDescriptor` assets;
-2. check `registry.canPullUpdate(desc)`;
-3. call `registry.pullUpdate(desc)` for each selected package;
-4. re-list installed packages and report old/new versions.
-
-If you need an inline fallback instead of invoking the skill, run
-`references/pull-update-packages.md` in one `ExecuteEditorCode` call. It mirrors the same
-`canPullUpdate` / `pullUpdate(desc)` workflow for all updatable packages. Set
-`timeoutMs` on that `ExecuteEditorCode` call to `300000`; the loop is synchronous and
-blocking, but multiple Asset Library downloads can exceed the default timeout.
+Use the canonical [`update-lens-packages`](../update-lens-packages/SKILL.md) actions by
+absolute path: first `actions/list-installed-packages.ts` with `args: {}`, then
+`actions/pull-package-updates.ts` with `args: { updateAll: true }` and
+`timeoutMs: 300000`, and finally list again to report old/new versions. The pull action re-finds
+live `NativePackageDescriptor` objects, updates only descriptors where `canPullUpdate` is true,
+and returns unavailable names. `pullUpdate` is synchronous/blocking, so the longer timeout covers
+Asset Library downloads; do not add polling or an inline fallback.
 
 Notes:
 
@@ -527,7 +520,7 @@ list of available devices to the user and ask which one to use.
 
 #### 7b. Run the Lens and collect runtime logs
 
-Invoke the `RunAndCollectLogsTool` MCP tool to launch the Lens in the preview and
+Invoke the `RunAndCollectLogsTool` MCP tool, with `previewName` set to the panel you configured in 7a, to launch the Lens in that preview and
 capture stdout/stderr from the runtime. Wait for the Lens to either reach a steady
 state (no new errors arriving) or crash on startup.
 

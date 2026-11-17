@@ -53,7 +53,11 @@ FontSelector({ family: "Inter" })
 |---|---|
 | `family` | Exact family name as returned by search (or as named in Google Fonts). Case-sensitive — `"Open Sans"`, not `"open sans"`. |
 | `sceneObjectId` | Optional UUID. The font is applied to **every** `Text` / `Text3D` component found inside that SceneObject's subtree. If omitted, applies to the currently selected text components. |
+
+> **Target `Component.Text`, not `Component.Text3D`, for flat labels / HUD / UI.** They are different components: applying a font to `Text3D` when you meant flat label text leaves you debugging a pink slab (Text3D is an extruded mesh that renders magenta when its material is unbound). Full `Text` vs `Text3D` guidance lives in `lens-api/references/2d-ui.md` (do not restate it here).
 | `category` | Optional, used to disambiguate when multiple families share a name. Rarely needed. |
+
+> **Target `Component.Text`, not `Component.Text3D`, for flat labels / HUD / UI.** They are different components: applying a font to `Text3D` when you meant flat label text leaves you debugging a pink slab (Text3D is an extruded mesh that renders magenta when its material is unbound). Full `Text` vs `Text3D` guidance lives in `lens-api/references/2d-ui.md` (do not restate it here).
 
 **Three apply modes:**
 
@@ -87,6 +91,8 @@ Rules:
 - Use the path returned by the tool — do NOT hardcode `"Inter.ttf"` if the actual file is `"Inter-Regular.ttf"` or `"Inter Variable.ttf"`. Read the tool response.
 - The `as Font` cast is required — `requireAsset` returns the base asset type.
 - If multiple Text components in the scene should share one font, declare `HUD_FONT` once at module scope and assign by reference. No need to re-`requireAsset` per component.
+
+> **`.font` is fine for a single static face; use `fontSource` when you need runtime `weight`/`italic` variants** from a `FontFamily`/`FontCollection`. The exact `font` / `fontSource` contract on the `Text` and `Text3D` classes (including that assigning `font` overrides `fontSource`) is defined in `Support/StudioLib.d.ts`; read it there rather than trusting a version pinned here.
 
 ## Theme-driven font picking
 

@@ -16,6 +16,7 @@ tools:
   - mcp__lens-studio__RecompileTypeScriptTool
   - mcp__lens-studio__CapturePanelScreenshotTool
   - mcp__lens-studio__RunAndCollectLogsTool
+  - mcp__lens-studio__PreviewPanelTool
 ---
 <!--
 Copyright 2026 Specs Inc.
@@ -127,14 +128,14 @@ Call `RecompileTypeScriptTool`. If it fails:
 
 For each baseline marker (`idle`, `interaction`, `climax`):
 
-1. Toggle `PerfAttributionHarness.enabledForProfiling = true` via `ExecuteEditorCode`. Use the `find()` snippet from `perf-attribution-runner.md` Phase 2 verbatim, setting `enabledForProfiling = true` (set `false` when restoring).
-2. `RunAndCollectLogsTool` to refresh Preview. **Retain the full log text this call returns** — this is the fix-applied (post-fix) log. Phase 5 writes it to `post.log`; do not discard it between markers (append/accumulate across the marker runs).
+1. Call `ExecuteEditorCode` with the same canonical absolute path used by `perf-attribution-runner`, `plugins/ls-clad/skills/specs-lens-perf-attribution/actions/toggle-perf-attribution-harness.ts`, and `{ "harnessIdentifier": "PerfAttributionHarness", "enabled": true }`. Preserve the actual harness identifier selected for this project.
+2. `RunAndCollectLogsTool` to refresh Preview, with `previewName` set to the traced panel's exact title (from `PreviewPanelTool` `listPreviews`), so the frames match the baseline. **Retain the full log text this call returns** — this is the fix-applied (post-fix) log. Phase 5 writes it to `post.log`; do not discard it between markers (append/accumulate across the marker runs).
 3. Monitor logs for `[PerfHarness] marker:<name>`. The timeout must account for when the marker is scheduled to fire: wait until `delaySeconds + marker offset + 10s` (i.e. 10s beyond the marker's scheduled offset), so large projects with long `delaySeconds` don't false-timeout.
-4. When the marker fires, immediately `CapturePanelScreenshotTool({ pluginId: "Snap.Plugin.Gui.PreviewPanel" })`.
+4. When the marker fires, immediately `CapturePanelScreenshotTool({ pluginId: "Snap.Plugin.Gui.PreviewPanel", previewName: "<same title>" })`.
 5. Save to `<post_screenshots_out>/marker_<name>.png`.
 6. If a marker never fires, write a sentinel `.missing` file at that path.
 
-Then toggle `enabledForProfiling = false` to leave the project in the same harness state the orchestrator expects.
+Then invoke that same canonical action with the preserved harness identifier and `{ "enabled": false }` to leave the project in the same harness state the orchestrator expects. Treat any non-`OK` action result as a failure; do not paste or recreate a runner snippet.
 
 ### Phase 5 — Collect logs
 

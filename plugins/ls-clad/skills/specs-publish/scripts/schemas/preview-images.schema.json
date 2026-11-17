@@ -1,0 +1,479 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Specs publish automatic preview image boundaries",
+  "$defs": {
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stageInput": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "$ref": "#/$defs/path"
+        },
+        "secondInput": {
+          "$ref": "#/$defs/path"
+        },
+        "output": {
+          "$ref": "#/$defs/path"
+        }
+      },
+      "required": [
+        "input",
+        "output"
+      ],
+      "additionalProperties": false
+    },
+    "image": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "width": {
+          "const": 1080
+        },
+        "height": {
+          "const": 1440
+        },
+        "bytes": {
+          "$ref": "#/$defs/imageBytes"
+        },
+        "source": {
+          "const": "auto_image"
+        },
+        "capture": {
+          "const": "lens_studio_preview_panel"
+        }
+      },
+      "required": [
+        "path",
+        "width",
+        "height",
+        "bytes",
+        "source",
+        "capture"
+      ],
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "FAILED",
+            "ACTION_REQUIRED"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "status",
+        "reason",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "stageResult": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "const": "SCREENSHOT_READY"
+            },
+            "path": {
+              "$ref": "#/$defs/path"
+            },
+            "width": {
+              "const": 1080
+            },
+            "height": {
+              "const": 1440
+            },
+            "bytes": {
+              "$ref": "#/$defs/imageBytes"
+            },
+            "source": {
+              "const": "auto_image"
+            },
+            "capture": {
+              "const": "lens_studio_preview_panel"
+            }
+          },
+          "required": [
+            "status",
+            "path",
+            "width",
+            "height",
+            "bytes",
+            "source",
+            "capture"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "const": "SCREENSHOTS_READY"
+            },
+            "images": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/image"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "proposals": {
+              "type": "object",
+              "properties": {
+                "previewMediaPlan": {
+                  "const": "auto_image"
+                },
+                "previewMedia": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "$ref": "#/$defs/path"
+                      },
+                      "source": {
+                        "const": "auto_image"
+                      },
+                      "type": {
+                        "const": "image"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "source",
+                      "type"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              },
+              "required": [
+                "previewMediaPlan",
+                "previewMedia"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "status",
+            "images",
+            "proposals"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "$ref": "#/$defs/error"
+        }
+      ]
+    },
+    "prepareInput": {
+      "type": "object",
+      "properties": {
+        "stateHandle": {
+          "type": "string",
+          "minLength": 1
+        },
+        "imageCount": {
+          "$ref": "#/$defs/captureImageCount"
+        }
+      },
+      "required": [
+        "stateHandle"
+      ],
+      "additionalProperties": false
+    },
+    "recordInput": {
+      "type": "object",
+      "properties": {
+        "stateHandle": {
+          "type": "string",
+          "minLength": 1
+        },
+        "result": {
+          "type": "object"
+        },
+        "manualPaths": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/path"
+          },
+          "minItems": 1,
+          "maxItems": 2
+        }
+      },
+      "required": [
+        "stateHandle"
+      ],
+      "additionalProperties": false
+    },
+    "captureResult": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "pluginId": {
+          "const": "Snap.Plugin.Gui.PreviewPanel"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "path",
+        "pluginId",
+        "width",
+        "height"
+      ],
+      "additionalProperties": true
+    },
+    "sessionResult": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "const": "PREVIEW_IMAGE_CAPTURE_REQUIRED"
+            },
+            "stage": {
+              "const": "publish_session"
+            },
+            "stateHandle": {
+              "type": "string",
+              "minLength": 1
+            },
+            "previewIndex": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "screenshotRequest": {
+              "type": "object",
+              "properties": {
+                "tool": {
+                  "const": "CapturePanelScreenshotTool"
+                },
+                "arguments": {
+                  "type": "object",
+                  "properties": {
+                    "pluginId": {
+                      "const": "Snap.Plugin.Gui.PreviewPanel"
+                    },
+                    "outputPath": {
+                      "$ref": "#/$defs/path"
+                    },
+                    "maxDimension": {
+                      "const": 1920
+                    }
+                  },
+                  "required": [
+                    "pluginId",
+                    "outputPath",
+                    "maxDimension"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "tool",
+                "arguments"
+              ],
+              "additionalProperties": false
+            },
+            "resetRequest": {
+              "type": "object",
+              "properties": {
+                "tool": {
+                  "const": "PreviewPanelTool"
+                },
+                "arguments": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "refresh"
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "tool",
+                "arguments"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "status",
+            "stage",
+            "stateHandle",
+            "previewIndex",
+            "screenshotRequest"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "const": "PUBLISH_PREVIEW_IMAGES_READY"
+            },
+            "stage": {
+              "const": "publish_session"
+            },
+            "stateHandle": {
+              "type": "string",
+              "minLength": 1
+            },
+            "images": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/image"
+              },
+              "minItems": 1,
+              "maxItems": 2
+            }
+          },
+          "required": [
+            "status",
+            "stage",
+            "stateHandle",
+            "images"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "enum": [
+                "FAILED",
+                "ACTION_REQUIRED"
+              ]
+            },
+            "stage": {
+              "const": "publish_session"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "status",
+            "stage",
+            "reason",
+            "message"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "manifest": {
+      "type": "object",
+      "properties": {
+        "createdAtEpochSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expiresAtEpochSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "mediaType": {
+          "enum": [
+            "image",
+            "video"
+          ]
+        },
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/path"
+          },
+          "minItems": 2,
+          "maxItems": 3
+        }
+      },
+      "required": [
+        "createdAtEpochSeconds",
+        "expiresAtEpochSeconds",
+        "mediaType",
+        "path",
+        "paths"
+      ],
+      "additionalProperties": false
+    },
+    "imageBytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 15728640
+    },
+    "videoBytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 104857600
+    },
+    "videoDurationSeconds": {
+      "type": "number",
+      "minimum": 15,
+      "maximum": 30
+    },
+    "previewMediaCount": {
+      "type": "integer",
+      "minimum": 2,
+      "maximum": 10
+    },
+    "previewImageCount": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10
+    },
+    "previewVideoCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3
+    },
+    "captureImageCount": {
+      "type": "integer",
+      "enum": [
+        1,
+        2
+      ]
+    }
+  }
+}

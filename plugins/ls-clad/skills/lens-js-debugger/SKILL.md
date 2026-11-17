@@ -36,6 +36,23 @@ Most bugs need exactly this loop:
 the single-target case, so explicit `attach` is only needed to pre-warm or to pick among multiple
 targets (`--target "<title>"`, or a pre-attach `health` to list them).
 
+<a id="mcp-preview-tools"></a>
+## Debugging alongside Lens Studio MCP preview tools
+
+Every preview runs its own Lens VM, and lsdbg can attach only to **visible Preview panels**. Hidden
+previews, such as the MCP tools' `"Headless Preview"`, are never debug targets. When you drive or
+read the Lens with MCP preview tools (`PreviewInteractTool`, `InjectPreviewGesture`,
+`QueryRuntimeSceneTool`, `RunAndCollectLogsTool`, `CaptureRuntimeViewTool`, ...) during a debug
+session:
+
+1. Run `lsdbg attach` explicitly and read `result.previewName`, the panel title (e.g. `"Preview 1"`).
+2. Pass that value as `previewName` on **every** MCP preview call in the session. A refresh-mode
+   `RunAndCollectLogsTool` then reloads the debugged VM, so re-arm `eval` probes after it.
+
+**Failure signature:** the MCP interaction reports success, but breakpoints, `eval`-attached
+handlers and `console-log` see nothing. The interaction ran in a different preview's VM. Check
+`previewName` before concluding that an event doesn't fire.
+
 ## When to use
 
 - A **JavaScript Lens** (SnapHermes / Hermes VM) where you must evaluate expressions, set
@@ -61,8 +78,9 @@ analysis (read the source instead).
 - **Async frames** — `this` is the Hermes stepper closure, not the component (a member reads as
   `undefined`, masquerading as missing wiring).
 - **Synthetic taps** can't be dispatched from the debugger — if the lens-studio MCP is enabled use
-  its `InjectPreviewGesture`, else `eval` the bound handler as a standalone function, else ask the
-  user to interact (then confirm the pause with `health`).
+  its `InjectPreviewGesture` with `previewName` set to the title `lsdbg attach` returned
+  ([why](#mcp-preview-tools)), else `eval` the bound handler as a standalone function, else ask
+  the user to interact (then confirm the pause with `health`).
 
 <a id="cross-cutting-rules"></a>
 ## Cross-cutting rules (not in any single `--help`)
@@ -91,7 +109,7 @@ analysis (read the source instead).
 |---|---|---|
 | `paused` | halted at a breakpoint or throw | read `vm.pause_reason` / `vm.exception_text`; `backtrace` / `locals` / `eval-on-frame`, then `resume` |
 | `init_throw` | threw in `onAwake` / top-level | read `activity_since_attach.last_exception_ts`; fix init code |
-| `healthy_running` | VM alive and executing; the watched path just isn't running | widen the breakpoint, add a `console.log`, or `eval` |
+| `healthy_running` | VM alive and executing; the watched path just isn't running | if an MCP tool drove the repro, confirm its `previewName` matches `attach`'s ([above](#mcp-preview-tools)); else widen the breakpoint, add a `console.log`, or `eval` |
 | `preview_idle` | user hasn't pressed Play (or hit end-of-timeline) | ask the user to press Play, or `reload` |
 | `wrong_target` | stale / torn-down session | re-attach |
 | `ambiguous` | no positive nor negative signal | wait briefly, re-call `health`; if still ambiguous, escalate |

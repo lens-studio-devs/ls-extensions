@@ -15,6 +15,7 @@ from .auto_session import attach_until_live, ensure_session, resolve_target_id
 from .cleanup_force import run_cleanup_force
 from .console_events import FilterParseError, parse_duration_seconds
 from .daemon import run_attach
+from .daemon_state import ATTACH_PREVIEW_NAME_HINT, HINT_CODE_ATTACH_PREVIEW_NAME
 from .health_command import run_health
 from .install_link import run_install_link
 from .json_io import Envelope, emit_stdout, fail
@@ -474,8 +475,17 @@ def _do_attach(args: argparse.Namespace) -> int:
         fail(error)
         return 1
     payload: dict[str, Any] = {"attached": True, "targetId": resolved.target_id}
+    if resolved.target_title:
+        payload["title"] = resolved.target_title
     if state is not None:
         payload["state"] = state
+    if resolved.preview_panel and resolved.target_title:
+        # The panel title is the previewName that routes MCP preview tools to
+        # this same Lens VM; surface it so a debug session can't silently drive
+        # a different (hidden) preview.
+        payload["previewName"] = resolved.target_title
+        payload["hint"] = ATTACH_PREVIEW_NAME_HINT
+        payload["hintCode"] = HINT_CODE_ATTACH_PREVIEW_NAME
     emit_stdout(Envelope.success(payload))
     return 0
 

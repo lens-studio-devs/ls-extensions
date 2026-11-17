@@ -18,7 +18,7 @@ SPDX-License-Identifier: Apache-2.0
 result = RunAndCollectLogsTool(…)
 # Read directly:
 result.errors      // array of E/F/W lines, deduped, with (×N) repeat counts
-result.prints      // array of script log output (captures print() and console.log/info/warn/error/debug, framed by [Preview N])
+result.prints      // array of script log output (captures print() and console.log/info/warn/error/debug, framed by the preview's log tag: [LensPreview Headless Preview] by default, [Preview N] for a panel)
 result.tail        // ≤16KB chronological D/I context (JS stack traces live here)
 result.firstActivityAtMs  // null = lens never ran (strong signal)
 ```
@@ -94,7 +94,7 @@ For content beyond the inline caps, or to inspect history older than the current
 
 ```bash
 awk -v off="$BYTE_OFFSET" 'BEGIN{b=0}{b+=length($0)+1;if(b>=off)print}' "$LOG_FILE" \
-  | grep -E '^[CEWF] |\[Preview '
+  | grep -E '^[CEWF] |\[(Lens)?Preview '
 ```
 
 ## Log format (reference)
@@ -106,7 +106,7 @@ Each line: `<LEVEL> <HH:MM:SS.mmm> <source_file>:<line> (<@thread>) <function>] 
 | `F` / `C` | Fatal / Critical (rare) | `errors` |
 | `E` | Error — also where `console.error` lands | `errors` |
 | `W` | Warning (fatal-in-effect surfaces here; also where `console.warn` lands) | `errors` |
-| `I` | Info — includes script log output (`print()`, `console.log/info/debug`) framed by `[Preview N]` | `prints` (if framed) / `tail` |
+| `I` | Info — includes script log output (`print()`, `console.log/info/debug`) framed by the preview's log tag (`[LensPreview Headless Preview]` by default, `[Preview N]` for a panel) | `prints` (if framed) / `tail` |
 | `D` | Debug — includes "TypeScript is not compiled" diagnostic | `tail` |
 
 Example raw line: `E 14:32:01.456 PreviewWorker.cpp:519 (@Es::Preview::PreviewWorker) processFrame] TypeError: Cannot read property 'x' of null`

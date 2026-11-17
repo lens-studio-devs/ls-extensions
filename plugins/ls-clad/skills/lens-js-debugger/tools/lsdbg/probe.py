@@ -48,7 +48,7 @@ PROBE_READ_JS = """
 # stopped preview always reports false within ~1s of the next health call.
 FRAME_FRESHNESS_MS = 1000
 
-# Cap for the probe-install Runtime.evaluate. On LS Internal v5.22+ that eval
+# Cap for the probe-install Runtime.evaluate. On Lens Studio 5.22+ that eval
 # can stall indefinitely behind a busy JS main loop; without this cap the
 # entire attach blocks on a hung probe. The synthetic -32001 ("Command timed
 # out") envelope from `CdpClient` is handled by `_install_frame_probe`'s
@@ -61,7 +61,7 @@ PROBE_INSTALL_TIMEOUT_S = 3.0
 # probe failed to install. A bare `Date.now()` eval is the cheapest expression
 # Hermes can answer and round-trips entirely off the lens render thread, so a
 # timely reply proves the VM is processing CDP commands even when
-# `script.createEvent` is unavailable (LS Internal v5.22+). Distinct from the
+# `script.createEvent` is unavailable (Lens Studio 5.22+). Distinct from the
 # probe-install timeout because this runs on every `health` call, not once at
 # attach.
 VM_RESPONSIVE_PROBE_JS = "Date.now()"

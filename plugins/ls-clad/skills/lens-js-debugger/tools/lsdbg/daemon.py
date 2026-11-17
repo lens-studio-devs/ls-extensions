@@ -481,7 +481,7 @@ class AttachDaemon(
                     "silent": True,
                 },
                 session_id=self.page_session_id,
-                # Tight budget: LS Internal v5.22+ Runtime.evaluate can hang
+                # Tight budget: Lens Studio 5.22+ Runtime.evaluate can hang
                 # indefinitely behind a busy main loop; an unbounded await
                 # would block all of attach.
                 timeout_s=PROBE_INSTALL_TIMEOUT_S,

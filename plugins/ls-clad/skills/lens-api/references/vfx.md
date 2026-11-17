@@ -133,7 +133,7 @@ These are configured in the Lens Studio **VFX Graph editor**, not in script — 
 | **Blend Mode** | `Additive` for fire/glow, `Alpha` for soft particles, `Normal` for opaque |
 | **Shape** | Sphere, Cone, Box, Mesh surface — defines the spawn volume |
 
-> **World vs Local simulation**: use **World** space for fire or smoke that should trail behind a moving emitter. Use **Local** for effects that rigidly follow the emitter (e.g., a sparkle around a held object).
+> **World vs Local simulation**: use **World** space for fire or smoke that should trail behind a moving emitter. Use **Local** for effects that rigidly follow the emitter (e.g., a sparkle around a held object). This is a VFX Graph setting — GPU Particles' **World / Local Space** option only changes the axes used for velocity and gravity (and whether 3D Mesh particles rotate with the emitter) and never detaches particles from the emitter (see [`vfx-graph` §9](../../vfx-graph/SKILL.md)).
 
 
 ## Attaching VFX to Face / Body Tracking Anchors
@@ -189,4 +189,4 @@ export class SpawnOnTap extends BaseScriptComponent {
 - **Type mismatch is silent** — passing a `number` to a `vec3` property won't error; it just won't work. Match the type exposed in the VFX graph.
 - **Simulation space matters** — a `Local`-space emitter attached to moving content may produce unexpected particle trails; switch to `World` if that happens.
 - **Writing properties every frame is fine** — VFX property writes happen on the CPU; the GPU reads them at emit time. Don't worry about performance for single-value writes.
-- **`VFXComponent` is not `ParticleSystem`** — Lens Studio's VFX Graph is separate from the legacy Particle System component. They have different APIs and can't be mixed.
+- **`VFXComponent` is not `ParticleSystem`** — Lens Studio's VFX Graph is separate from the GPU Particles system (both are current and supported, with different APIs that can't be mixed). GPU Particles is created from the `GPUParticlesObjectPreset` preset (author-time) and configures through material pass properties (reached via `material.mainPass.<name>` at runtime, or `material.passInfos[0]` in the Editor API). **Names can differ between graph versions — use the documented names on a preset you just created, and enumerate them on any other material** (in the Editor API, `passInfos[0].getPropertyNames()` / `passInfos[0].uiData.passBindings`). Full category list, the enumeration recipe, and the External-Time burst recipe: [`vfx-graph` §9](../../vfx-graph/SKILL.md).

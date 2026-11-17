@@ -47,17 +47,17 @@ cropObj.getTransform().setLocalScale(new vec3(s, s, s))
 
 **Same trap applies to:** any `/build-mesh` output (SPECS, FAST3D, voxel — all GLBs hit the 100× import) instantiated via `ObjectPrefab.instantiate()`. It does NOT apply to runtime-built meshes (e.g. `MeshBuilder` output you assemble in code) — those have whatever local scale you give them. The trap is specifically about prefab instances carrying the GLB's authored 100 on their transform.
 
-**Detection in QA:** if a planted/spawned object visibly disappears, is reported "spawned but invisible," or has world-position correct but `localScale < 1` in `RuntimeSceneTool` output, suspect this bug before suspecting the asset.
+**Detection in QA:** if a planted/spawned object visibly disappears, is reported "spawned but invisible," or has world-position correct but `localScale < 1` in `QueryRuntimeSceneTool` output, suspect this bug before suspecting the asset.
 
 ---
 
-# Collider & interaction rules (SIK) — specs-experience-builder Hard Rule 6
+# Collider & interaction rules (IK) — specs-experience-builder Hard Rule 6
 
 Canonical copy of the builder agent's Hard Rule 6 — other files cite these as "Hard Rule 6.N". They prevent broken raycasts and invisible objects:
 
-1. **Never set `intangible = true`** on colliders used for SIK interaction. SIK raycasts require `intangible = false` (default). Omit the property.
+1. **Never set `intangible = true`** on colliders used for IK interaction. IK raycasts require `intangible = false` (default). Omit the property.
 2. **Never put a collider on a scaled object.** `box.size` is local space and gets multiplied by scale. Use the **wrapper pattern**: collider + Interactable on a unit-scale wrapper; scaled visual is a child of the wrapper. **Position the wrapper at `mesh_position + aabb_center_offset_cm`** so the collider lands on the visual centroid instead of the asset origin — AI-backend output (SPECS / FAST3D) is rarely bottom-centered, and the offset reported by `/build-mesh` is non-zero for those assets.
-3. **Never rotate objects with colliders.** SIK hand raycasts expect axis-aligned planes. Apply rotation to a child visual — not the collider wrapper.
+3. **Never rotate objects with colliders.** IK hand raycasts expect axis-aligned planes. Apply rotation to a child visual — not the collider wrapper.
 4. **Beware rotation inheritance.** Children of rotated parents inherit rotation. Keep interactive wrappers at identity rotation; rotate only leaf visual children.
 5. **GLB pose at instantiation — upright AND facing AND complete.** Three checks on every instantiated mesh, using the `/build-mesh` **Pose contract** fields (`upright`, `forward_axis`, `completeness`, `aabb_min_cm`, `grounded`):
    - **Upright.** Lens Studio's import sometimes adds a −90° X rotation on the root instantiated node — for Blender-, SPECS-, and FAST3D-exported GLBs. If `upright` is `unknown`, or a `CapturePanelScreenshotTool` / `GetBoundingBox` check shows the mesh on its back (measured Y ≠ the `aabb_cm` Y), correct it.

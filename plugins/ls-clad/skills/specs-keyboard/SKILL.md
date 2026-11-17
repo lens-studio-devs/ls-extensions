@@ -13,7 +13,7 @@ SPDX-License-Identifier: Apache-2.0
 
 **Requirements:** Lens Studio v5.7+, Snap OS v5.060+
 
-> The AR Keyboard does **not** appear in Lens Studio Preview with SPECS 27 simulation. Switch to simulation mode without SPECS 27 render to test.
+> In Lens Studio Preview with SPECS 27 simulation, focusing a text field shows a **keyboard-simulation placeholder** ("use the hardware keyboard for input") instead of the full on-screen AR keyboard — but text entry **does** work: typing on your hardware keyboard registers in the field. So you can test text input directly in SPECS 27 Preview; the visual AR keyboard itself renders on device. (Verified in LS 5.25.)
 
 Reference: `Sync Kit Think Out Loud/`, templates with text input fields
 
@@ -110,26 +110,31 @@ export class KeyboardController extends BaseScriptComponent {
 
 ---
 
-## With SIK TextInputField (UIKit)
+## With IK TextInputField (UIKit)
 
-For fully styled text input boxes, use the `TextInputField` from SpectaclesUIKit:
+For fully styled text input boxes, use UIKit's `TextInputField` — it
+manages the on-screen keyboard for you (opens on focus, closes on blur), so you
+don't drive the keyboard directly. UIKit 4.0:
 
-```typescript
-import {TextInputField} from "SpectaclesUIKit.lspkg/Scripts/Components/TextInputField/TextInputField"
+```ts
+import {TextInputField} from "UIKit.lspkg/Scripts/Components/TextInputField/TextInputField"
 
-@input textInput: TextInputField
-
-onAwake(): void {
-  this.textInput.onTextChanged.add((text: string) => {
-    print("[Input] Text: " + text)
-  })
-  this.textInput.onSubmit.add((text: string) => {
-    this.processInput(text)
-  })
-}
+const field = object.createComponent(TextInputField.getTypeName()) as TextInputField
+field.placeholderText = "Name"
+field.actionSlot = "none"                     // or "voiceInput"
+field.onInitialized.add(() => {
+  field.fontSize = 44
+  field.onReturnKeyPressed.add((text) => submit(text))
+  field.onTextChanged.add((text) => preview(text))
+})
 ```
 
-The UIKit `TextInputField` handles keyboard opening/closing automatically.
+Set sizing and subscribe in `onInitialized`; read the current value from `field.text`.
+
+> A `TextInputField` **does** receive keystrokes under SPECS 27 Preview
+> simulation via the hardware keyboard (a keyboard-simulation placeholder appears
+> in place of the on-screen AR keyboard). Verified in LS 5.25 — typed text
+> registered in the field.
 
 ---
 

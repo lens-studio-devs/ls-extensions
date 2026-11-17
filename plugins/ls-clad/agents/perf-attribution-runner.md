@@ -13,7 +13,7 @@ tools:
   - mcp__lens-studio__ExecuteEditorCode
   - mcp__lens-studio__RunAndCollectLogsTool
   - mcp__lens-studio__CapturePanelScreenshotTool
-  - mcp__lens-studio__ListAllPanels
+  - mcp__lens-studio__PreviewPanelTool
 ---
 <!--
 Copyright 2026 Specs Inc.
@@ -51,7 +51,7 @@ The only project-state mutations you may make are (1) toggling the `enabledForPr
 
 ### Phase 1 — Preflight (every mode)
 
-1. Verify Lens Studio MCP via `ListAllPanels`. If empty, stop and surface "MCP unreachable" to the orchestrator.
+1. Verify Lens Studio MCP with the liveness probe (`lens-studio-field-notes` Hard Rule 6): on Claude Code preload its schema first — `ToolSearch({ query: "select:mcp__lens-studio__ExecuteEditorCode", max_results: 1 })` (Codex/Cursor surface it directly) — then call `ExecuteEditorCode` with `return "ok";`. If unreachable, stop and surface "MCP unreachable" to the orchestrator.
 2. Confirm `PerfAttributionHarness` exists in the scene via `scene-graphql`. If absent, stop with "PerfAttributionHarness missing — re-run /specs-lens-perf-attribution".
 3. Resolve the trace processor:
    - Prefer the orchestrator-supplied `trace_processor` path.
@@ -63,37 +63,22 @@ The only project-state mutations you may make are (1) toggling the `enabledForPr
 
 ### Phase 2 — Toggle harness on
 
-Set `enabledForProfiling = true` on the harness via `ExecuteEditorCode`:
+Set `enabledForProfiling = true` through the canonical Editor API action, not a Lens-runtime `require()` traversal. Call `ExecuteEditorCode` with the absolute path to `plugins/ls-clad/skills/specs-lens-perf-attribution/actions/toggle-perf-attribution-harness.ts` and:
 
-```typescript
-// invoke via the `ExecuteEditorCode` MCP tool
-const ed = require('LensStudio:Editor');
-const root = ed.getProject().getRootScene().getRoot();
-function find(obj) {
-  if (!obj) return null;
-  for (const c of obj.getComponents('Component.ScriptComponent') || []) {
-    const sn = c.scriptName || (c.script && c.script.name) || '';
-    if (sn.includes('PerfAttributionHarness')) return c;
-  }
-  for (let i = 0; i < obj.getChildrenCount(); i++) {
-    const hit = find(obj.getChild(i));
-    if (hit) return hit;
-  }
-  return null;
-}
-const harness = find(root);
-if (!harness) throw new Error('PerfAttributionHarness component not found');
-harness.enabledForProfiling = true;
+```json
+{ "harnessIdentifier": "PerfAttributionHarness", "enabled": true }
 ```
 
-Then `RunAndCollectLogsTool` to refresh Preview and wait for the harness's arming marker in the log (the harness logs `[PerfHarness] armed` once it starts, after `delaySeconds` has elapsed).
+`harnessIdentifier` must be the exact configured script component identifier (normally the basename of `harness_path` without `.ts`; use the scene's exact script name/path if it differs). The action uses `pluginSystem` and the Editor model to locate a matching ScriptComponent and validates both arguments before mutation. Treat any non-`OK` action result as a hard failure.
+
+Traces come only from visible Preview panels, so pass the traced panel's exact title (from `PreviewPanelTool` `listPreviews`) as `previewName` to every `RunAndCollectLogsTool` and `CapturePanelScreenshotTool` call in this run. Then `RunAndCollectLogsTool` to refresh Preview and wait for the harness's arming marker in the log (the harness logs `[PerfHarness] armed` once it starts, after `delaySeconds` has elapsed).
 
 ### Phase 3 — Sweep
 
 For each stage in the manifest (or the focused 2-stage subset for `mode=targeted`):
 
 1. Toggle the stage's project-side components per the manifest (`enabled = true/false` via `ExecuteEditorCode`). The manifest already encodes which roots/components belong to each stage.
-2. `RunAndCollectLogsTool` to refresh Preview, and **monitor its LIVE log stream** — do not wait for the run to finish. Watch the streamed lines for the harness `[PerfHarness] armed` marker (the harness never emits a `ready` marker).
+2. `RunAndCollectLogsTool` (same `previewName`) to refresh Preview, and **monitor its LIVE log stream** — do not wait for the run to finish. Watch the streamed lines for the harness `[PerfHarness] armed` marker (the harness never emits a `ready` marker).
 3. The moment you observe `[PerfHarness] armed`, capture the Perfetto trace **while Preview is still running** — for the manifest's `capture_duration_s` (default 12s, 8s for `mode=targeted` 2-trace passes). Capture is a live operation against the running preview, not a retrospective read of a finished run.
 4. Save the trace to `<attribution_dir>/sweep_<stage>_<mode>_<timestamp>.pftrace`.
 5. If a trace processor is available, export to `.sqlite` immediately so downstream analysis can run.
@@ -107,7 +92,7 @@ If `ExecuteEditorCode` cannot drive Perfetto capture in your build, stop and sur
 The harness publishes frame markers via `print(...)` log lines: `[PerfHarness] marker:idle`, `marker:interaction`, `marker:climax`. For each marker:
 
 1. `RunAndCollectLogsTool` and monitor the live log until the marker is observed. The timeout must account for when the marker is actually scheduled to fire: wait until `delaySeconds + marker offset + 10s` (i.e. 10s beyond the marker's scheduled offset), so large projects with long `delaySeconds` don't false-timeout.
-2. Immediately after, call `CapturePanelScreenshotTool({ pluginId: "Snap.Plugin.Gui.PreviewPanel" })`.
+2. Immediately after, call `CapturePanelScreenshotTool({ pluginId: "Snap.Plugin.Gui.PreviewPanel", previewName: "<traced panel title>" })`.
 3. Save the screenshot to `<screenshots_out>/marker_<name>.png`.
 
 If a marker never fires within that window, save a sentinel `.missing` file at that path and continue — the orchestrator will flag it as an experiential regression.
@@ -146,7 +131,7 @@ Persist the log: accumulate (append) the text returned by EVERY `RunAndCollectLo
 
 ### Phase 6 — Toggle harness off
 
-Restore `enabledForProfiling = false` via `ExecuteEditorCode`. A disabled harness returns early in `onAwake` and prints **nothing**, so do NOT wait for a log line — that would hang. Instead, refresh Preview with `RunAndCollectLogsTool` and confirm the harness is silent: the absence of the `[PerfHarness] armed` marker within the refresh window confirms the toggle took effect. (Optionally read the input back via `ExecuteEditorCode` to assert it is `false`.)
+Restore through the same canonical action path with `{ "harnessIdentifier": "PerfAttributionHarness", "enabled": false }` (preserve the actual identifier selected in Phase 2). A disabled harness returns early in `onAwake` and prints **nothing**, so do NOT wait for a log line — that would hang. Instead, refresh Preview with `RunAndCollectLogsTool` and confirm the harness is silent: the absence of the `[PerfHarness] armed` marker within the refresh window confirms the toggle took effect. (Optionally read the input back via `ExecuteEditorCode` to assert it is `false`.)
 
 ### Phase 7 — Return
 

@@ -1,0 +1,1375 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Lens evaluation contracts v1",
+  "$comment": "Select a boundary using #/$defs/<kind>. Unknown fields are rejected. File integrity and cross-artifact invariants are checked by validate-contract.py.",
+  "$defs": {
+    "skill-input": {
+      "type": "object",
+      "properties": {
+        "lens_folder": {
+          "type": "string",
+          "pattern": "^(?:/|[A-Za-z]:[\\\\/]).+"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "level": {
+          "enum": [
+            "fast",
+            "medium",
+            "high",
+            "discovery"
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "level"
+            ],
+            "properties": {
+              "level": {
+                "enum": [
+                  "medium",
+                  "high",
+                  "discovery"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "description"
+            ]
+          }
+        }
+      ]
+    },
+    "evaluator-input": {
+      "type": "object",
+      "properties": {
+        "lens_folder": {
+          "type": "string",
+          "pattern": "^(?:/|[A-Za-z]:[\\\\/]).+"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "level": {
+          "enum": [
+            "medium",
+            "high",
+            "discovery"
+          ]
+        }
+      },
+      "required": [
+        "description",
+        "level"
+      ],
+      "additionalProperties": false
+    },
+    "capture-plan": {
+      "description": "The evaluator's capture_config.json: run by scripts/capture_driver.py, plus the contract fields level, validation_state and limitations (the driver ignores them).",
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "level": {
+          "enum": [
+            "medium",
+            "high",
+            "discovery"
+          ]
+        },
+        "validation_state": {
+          "enum": [
+            "validated",
+            "unverified",
+            "blocked"
+          ]
+        },
+        "lens": {
+          "type": "string",
+          "minLength": 1
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 1
+        },
+        "skip_reset": {
+          "type": "boolean"
+        },
+        "frames": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "fps": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "max_dim": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "record_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "method_order": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "M1",
+              "M2",
+              "M3"
+            ]
+          },
+          "$comment": "M3 (recordVideo) runs on macOS only; capture_driver.py gates it off on Linux"
+        },
+        "start_actions": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "timeline": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "t": {
+                "type": "number",
+                "minimum": 0
+              },
+              "op": {
+                "enum": [
+                  "shot",
+                  "burst",
+                  "record",
+                  "editor_code",
+                  "pinch",
+                  "preview_interact",
+                  "gesture",
+                  "inject_gesture",
+                  "move_camera",
+                  "verify_enabled",
+                  "wait"
+                ]
+              },
+              "label": {
+                "type": "string"
+              },
+              "why": {
+                "type": "string"
+              },
+              "frames": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "fps": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "ms": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "t",
+              "op"
+            ]
+          }
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "level",
+        "validation_state",
+        "lens",
+        "subject",
+        "timeline",
+        "notes",
+        "limitations"
+      ],
+      "additionalProperties": false
+    },
+    "artifact": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^(?:/|[A-Za-z]:[\\\\/]).+"
+        },
+        "media_type": {
+          "enum": [
+            "image/png",
+            "image/jpeg",
+            "image/gif",
+            "video/mp4"
+          ]
+        },
+        "source": {
+          "enum": [
+            "preview_panel",
+            "preview_recording",
+            "leaf_preview",
+            "synthetic_render"
+          ]
+        },
+        "role": {
+          "enum": [
+            "primary",
+            "probe",
+            "progression",
+            "motion_frame",
+            "motion_gif",
+            "recording",
+            "supplemental"
+          ]
+        },
+        "phase": {
+          "enum": [
+            "B1",
+            "B2",
+            "C"
+          ]
+        },
+        "scenario_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "at_seconds": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "viewpoint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "type": "string",
+          "minLength": 1
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "derived_from": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "sample_interval_seconds": {
+          "anyOf": [
+            {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "playback_fps": {
+          "anyOf": [
+            {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "capture_origin": {
+          "enum": [
+            "requested",
+            "automatic"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "path",
+        "media_type",
+        "source",
+        "role",
+        "phase",
+        "scenario_id",
+        "at_seconds",
+        "viewpoint",
+        "state",
+        "width",
+        "height",
+        "sha256",
+        "bytes",
+        "derived_from",
+        "sample_interval_seconds",
+        "playback_fps",
+        "limitations",
+        "capture_origin"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "source": {
+                "const": "leaf_preview"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "phase": {
+                "const": "C"
+              },
+              "scenario_id": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "role": {
+                "const": "motion_gif"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "media_type": {
+                "const": "image/gif"
+              },
+              "derived_from": {
+                "minItems": 2
+              },
+              "sample_interval_seconds": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "playback_fps": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "role": {
+                "const": "recording"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "media_type": {
+                "const": "video/mp4"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "role": {
+                "const": "primary"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "phase": {
+                "const": "B2"
+              },
+              "source": {
+                "enum": [
+                  "preview_panel",
+                  "preview_recording"
+                ]
+              },
+              "media_type": {
+                "enum": [
+                  "image/png",
+                  "image/jpeg"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capture_origin": {
+                "const": "automatic"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "const": "leaf_preview"
+              },
+              "role": {
+                "const": "supplemental"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capture_origin": {
+                "const": "requested"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "at_seconds": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "at_seconds": {
+                "type": "null"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "limitations": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "capture-manifest": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "frames_dir": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?:/|[A-Za-z]:[\\\\/]).+"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "enum": [
+            "complete",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifact"
+          }
+        },
+        "primary_artifact_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "run_id",
+        "frames_dir",
+        "status",
+        "artifacts",
+        "primary_artifact_ids",
+        "limitations"
+      ],
+      "additionalProperties": false
+    },
+    "cleanup-change": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "file",
+            "scene_object",
+            "component",
+            "package",
+            "preview_setting"
+          ]
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "existed_before": {
+          "type": "boolean"
+        },
+        "before_state": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evaluation_state": {
+          "type": "string",
+          "minLength": 1
+        },
+        "backup_path": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?:/|[A-Za-z]:[\\\\/]).+"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "before_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evaluation_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "disposition": {
+          "enum": [
+            "pending",
+            "restored",
+            "removed",
+            "retained_shared",
+            "retained_conflict",
+            "retained_unavailable"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "target",
+        "existed_before",
+        "before_state",
+        "evaluation_state",
+        "backup_path",
+        "before_sha256",
+        "evaluation_sha256",
+        "disposition",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "existed_before": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "disposition": {
+                "enum": [
+                  "pending",
+                  "restored",
+                  "retained_shared",
+                  "retained_conflict",
+                  "retained_unavailable"
+                ]
+              },
+              "before_state": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "existed_before": {
+                "const": false
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "disposition": {
+                "enum": [
+                  "pending",
+                  "removed",
+                  "retained_shared",
+                  "retained_conflict",
+                  "retained_unavailable"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "file"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "target": {
+                "type": "string",
+                "pattern": "^(?:/|[A-Za-z]:[\\\\/]).+"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "leaf-cleanup": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "not_needed",
+            "pending",
+            "complete",
+            "partial",
+            "blocked"
+          ]
+        },
+        "changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cleanup-change"
+          }
+        },
+        "retained_artifact_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "run_id",
+        "status",
+        "changes",
+        "retained_artifact_ids",
+        "limitations"
+      ],
+      "additionalProperties": false
+    },
+    "evaluator-output": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "level": {
+          "enum": [
+            "medium",
+            "high",
+            "discovery"
+          ]
+        },
+        "status": {
+          "enum": [
+            "complete",
+            "partial",
+            "blocked"
+          ]
+        },
+        "report_path": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?:/|[A-Za-z]:[\\\\/]).+"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "internal_report": {
+          "type": "string",
+          "minLength": 1
+        },
+        "capture_plan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/capture-plan"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "capture_manifest": {
+          "$ref": "#/$defs/capture-manifest"
+        },
+        "leaf_cleanup": {
+          "$ref": "#/$defs/leaf-cleanup"
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "run_id",
+        "level",
+        "status",
+        "report_path",
+        "internal_report",
+        "capture_plan",
+        "capture_manifest",
+        "leaf_cleanup",
+        "limitations"
+      ],
+      "additionalProperties": false
+    },
+    "judge-input": {
+      "type": "object",
+      "properties": {
+        "internal_report": {
+          "type": "string",
+          "minLength": 1
+        },
+        "personality": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evaluation_status": {
+          "enum": [
+            "complete",
+            "partial"
+          ]
+        },
+        "frames_dir": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?:/|[A-Za-z]:[\\\\/]).+"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "capture_manifest": {
+          "$ref": "#/$defs/capture-manifest"
+        },
+        "effort": {
+          "enum": [
+            "medium",
+            "high"
+          ]
+        }
+      },
+      "required": [
+        "internal_report",
+        "personality",
+        "evaluation_status",
+        "frames_dir",
+        "capture_manifest"
+      ],
+      "additionalProperties": false
+    },
+    "judge-output": {
+      "type": "object",
+      "properties": {
+        "scores": {
+          "type": "object",
+          "properties": {
+            "alignment_of_prompt_to_result": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "maximum": 10
+            },
+            "interaction_fidelity": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "maximum": 10
+            },
+            "spatial_usage": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "maximum": 10
+            },
+            "asset_quality": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "maximum": 10
+            },
+            "visual_quality": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "maximum": 10
+            },
+            "cognitive_load": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "maximum": 10
+            },
+            "overall_quality": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "maximum": 10
+            },
+            "expected_engagement": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "maximum": 10
+            },
+            "global_score": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "maximum": 10
+            }
+          },
+          "required": [
+            "alignment_of_prompt_to_result",
+            "interaction_fidelity",
+            "spatial_usage",
+            "asset_quality",
+            "visual_quality",
+            "cognitive_load",
+            "overall_quality",
+            "expected_engagement",
+            "global_score"
+          ],
+          "additionalProperties": false
+        },
+        "comments": {
+          "type": "object",
+          "properties": {
+            "alignment_of_prompt_to_result": {
+              "type": "string",
+              "minLength": 1
+            },
+            "interaction_fidelity": {
+              "type": "string",
+              "minLength": 1
+            },
+            "spatial_usage": {
+              "type": "string",
+              "minLength": 1
+            },
+            "asset_quality": {
+              "type": "string",
+              "minLength": 1
+            },
+            "visual_quality": {
+              "type": "string",
+              "minLength": 1
+            },
+            "cognitive_load": {
+              "type": "string",
+              "minLength": 1
+            },
+            "overall_quality": {
+              "type": "string",
+              "minLength": 1
+            },
+            "expected_engagement": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        },
+        "global_score_rationale": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bottom_line": {
+          "type": "string",
+          "minLength": 1
+        },
+        "improvements": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "maxItems": 5
+        }
+      },
+      "required": [
+        "scores",
+        "comments",
+        "global_score_rationale",
+        "bottom_line",
+        "improvements"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "scores": {
+                "properties": {
+                  "alignment_of_prompt_to_result": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "comments": {
+                "required": [
+                  "alignment_of_prompt_to_result"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "scores": {
+                "properties": {
+                  "interaction_fidelity": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "comments": {
+                "required": [
+                  "interaction_fidelity"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "scores": {
+                "properties": {
+                  "spatial_usage": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "comments": {
+                "required": [
+                  "spatial_usage"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "scores": {
+                "properties": {
+                  "asset_quality": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "comments": {
+                "required": [
+                  "asset_quality"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "scores": {
+                "properties": {
+                  "visual_quality": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "comments": {
+                "required": [
+                  "visual_quality"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "scores": {
+                "properties": {
+                  "cognitive_load": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "comments": {
+                "required": [
+                  "cognitive_load"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "scores": {
+                "properties": {
+                  "overall_quality": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "comments": {
+                "required": [
+                  "overall_quality"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "scores": {
+                "properties": {
+                  "expected_engagement": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "comments": {
+                "required": [
+                  "expected_engagement"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "skill-output": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "level": {
+          "enum": [
+            "fast",
+            "medium",
+            "high",
+            "discovery"
+          ]
+        },
+        "status": {
+          "enum": [
+            "complete",
+            "partial",
+            "blocked"
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evaluation_result_path": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?:/|[A-Za-z]:[\\\\/]).+"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "improvements_path": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?:/|[A-Za-z]:[\\\\/]).+"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "judge_results": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "properties": {
+              "persona": {
+                "enum": [
+                  "critic",
+                  "optimist",
+                  "pedant",
+                  "free_spirit",
+                  "scientist"
+                ]
+              },
+              "result": {
+                "$ref": "#/$defs/judge-output"
+              }
+            },
+            "required": [
+              "persona",
+              "result"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "unavailable_judges": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "critic",
+              "optimist",
+              "pedant",
+              "free_spirit",
+              "scientist"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "panel_score": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 10
+        },
+        "panel_judge_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "level",
+        "status",
+        "summary",
+        "evaluation_result_path",
+        "improvements_path",
+        "judge_results",
+        "unavailable_judges",
+        "panel_score",
+        "panel_judge_count",
+        "limitations"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

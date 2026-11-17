@@ -10,9 +10,9 @@ SPDX-License-Identifier: Apache-2.0
 
 # Spatial Image — 2D to 3D Spatialization
 
-**Requirements:** Lens Studio v5.3+, Snap OS v5.58+. Install **Spatial Image** package from Asset Library. Requires Remote Service Gateway credential.
+**Requirements:** Lens Studio 5.25+ with the 4.0 packages (see `specs-package-renames`), Snap OS v5.58+. The **Spatial Image** custom component is 1.0.4 on Lens Studio 5.24 and 5.25: it depends on the RemoteServiceGateway the project already uses, so install RemoteServiceGateway first and never add a second copy. Requires a Remote Service Gateway credential (Snap token).
 
-Reference: `Spatial Image/`, `Spatial Image Advanced/`
+Reference: `Spatial Image/` (bundles the component as `Assets/Spatial Image.lsc`)
 
 > Only one image can be spatialized at a time. Multiple simultaneous requests cause delays.
 
@@ -20,7 +20,7 @@ Reference: `Spatial Image/`, `Spatial Image Advanced/`
 
 ## Scene Setup (Required)
 
-Template scene has 4 objects: `SpectaclesInteractionKit`, `SikSpatialImageFrame`, `SpatialGallery`, `RemoteServiceGatewayCredentials` (RSG auth — follow RSG setup docs to get credential).
+The `Spatial Image` sample's main objects: `InteractionKit`, `SpatialImageGallery-API` (the `SpatialGallery` script), `SpatialImage` (the custom component with `SpatialImageAngleValidator`, `SpatialImageDepthAnimator`, `SpatialImageSwapper`), `RemoteServiceGatewayCredentials` (RSG auth — follow RSG setup docs to get credential).
 
 ---
 
@@ -44,7 +44,7 @@ frame.setSpatialized(false)  // show flat
 // From SpatialGallery.ts pattern:
 @component
 export class ImageGallery extends BaseScriptComponent {
-  @input frame: SpatialImageFrame   // the SIK frame component
+  @input frame: SpatialImageFrame   // the sample's frame component
   @input gallery: Texture[]         // array of image textures
 
   private index: number = 0
